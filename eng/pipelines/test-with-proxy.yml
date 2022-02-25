@@ -1,0 +1,78 @@
+trigger: none
+
+variables:
+  PythonVersion: '3.9'
+
+jobs:
+  # - job: 'win2019docker'
+  #   displayName: 'Windows Docker Run'
+  #   pool:
+  #     vmImage: 'windows-2019'
+  #   steps:
+  #     - task: UsePythonVersion@0
+  #       displayName: 'Use Python $(PythonVersion)'
+  #       inputs:
+  #         versionSpec: $(PythonVersion)
+  #     - template: /eng/common/testproxy/test-proxy-docker.yml
+  #     - template : /eng/pipelines/templates/steps/check-availability.yml
+
+  - job: 'win2019tool'
+    displayName: 'Windows Tool Run'
+    pool:
+      vmImage: 'windows-2019'
+    steps:
+      - task: UsePythonVersion@0
+        displayName: 'Use Python $(PythonVersion)'
+        inputs:
+          versionSpec: $(PythonVersion)
+      - template: /eng/common/testproxy/test-proxy-docker.yml
+      - template : /eng/pipelines/templates/steps/check-availability.yml
+      - pwsh: |
+          docker logs ambitious_azsdk_test_proxy
+        displayName: dump output file
+
+  # - job: 'linux2020docker'
+  #   displayName: 'Linux Docker Run'
+  #   pool:
+  #     vmImage: 'ubuntu-20.04'
+  #   steps:
+  #     - task: UsePythonVersion@0
+  #       displayName: 'Use Python $(PythonVersion)'
+  #       inputs:
+  #         versionSpec: $(PythonVersion)
+  #     - template: /eng/common/testproxy/test-proxy-docker.yml
+  #     - template : /eng/pipelines/templates/steps/check-availability.yml
+
+  - job: 'linux2020tool'
+    displayName: 'Linux Tool Run'
+    pool:
+      vmImage: 'ubuntu-20.04'
+    steps:
+      - task: UsePythonVersion@0
+        displayName: 'Use Python $(PythonVersion)'
+        inputs:
+          versionSpec: $(PythonVersion)
+      - template: /eng/common/testproxy/test-proxy-docker.yml
+      - template : /eng/pipelines/templates/steps/check-availability.yml
+      - pwsh: |
+          docker logs ambitious_azsdk_test_proxy
+        displayName: dump output file
+
+  # - job: 'macos'
+  #   displayName: 'Mac Tool Run'
+  #   pool:
+  #     vmImage: 'macOS-10.15'
+  #   steps:
+  #     - template: /eng/common/testproxy/test-proxy-tool.yml
+  #     - template : /eng/pipelines/templates/steps/check-availability.yml
+  #     - pwsh: |
+  #         docker logs ambitious_azsdk_test_proxy
+  #       displayName: dump output file
+      # - pwsh: |
+      #     security add-trusted-cert -h
+      #   displayName: "Debug"
+      # - pwsh: |
+      #     sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain $(Build.SourcesDirectory)/eng/common/testproxy/dotnet-devcert.pfx
+      #   displayName: "Trust certificate attempt 2"
+      # - template: /eng/common/testproxy/test-proxy-docker.yml
+      # - template : /eng/pipelines/templates/steps/check-availability.yml
