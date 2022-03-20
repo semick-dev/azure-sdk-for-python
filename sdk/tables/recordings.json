@@ -1,0 +1,12 @@
+{
+    "configuration": {
+        "assets-prefix-path": "recordings/", 
+        "blob_prefix": "sdk/tables/",
+        "recordings_directory_patterns": [ "**/tests/recordings/*.json"],
+        "storage_account": "https://scottydoes.blob.core.windows.net/",
+        "storage_account_container": "test0"
+    },
+    "targeting": {
+        "guid": "{}"
+    }
+}
