@@ -10,6 +10,10 @@ from ci_tools.variables import discover_repo_root, get_artifact_directory
 from ci_tools.versioning.version_shared import set_version_py, set_dev_classifier
 from ci_tools.versioning.version_set_dev import get_dev_version, format_build_id
 from ci_tools.logging import initialize_logger, run_logged
+<<<<<<< HEAD
+=======
+
+>>>>>>> upstream/main
 
 def build() -> None:
     parser = argparse.ArgumentParser(
@@ -58,6 +62,17 @@ def build() -> None:
     )
 
     parser.add_argument(
+        "--inactive",
+        default=False,
+        dest="inactive",
+        action="store_true",
+        help=(
+            "Include inactive packages when assembling artifacts. CI builds will include inactive packages as a way to ensure that the yml"
+            + " controlled artifacts can be associated with a wheel/sdist."
+        ),
+    )
+
+    parser.add_argument(
         "--produce_apiview_artifact",
         default=False,
         dest="apiview_closure",
@@ -93,7 +108,9 @@ def build() -> None:
     else:
         target_dir = repo_root
 
-    targeted_packages = discover_targeted_packages(args.glob_string, target_dir, args.package_filter_string)
+    targeted_packages = discover_targeted_packages(
+        args.glob_string, target_dir, args.package_filter_string, filter_type="Build", compatibility_filter=True, include_inactive=args.inactive
+    )
     artifact_directory = get_artifact_directory(args.distribution_directory)
 
     build_id = format_build_id(args.build_id or DEFAULT_BUILD_ID)
@@ -129,7 +146,6 @@ def build_packages(
             new_version = get_dev_version(setup_parsed.version, build_id)
 
             logger.log(level=logging.DEBUG, msg=f"{setup_parsed.name}: {setup_parsed.version} -> {new_version}")
-            
             set_version_py(setup_parsed.setup_filename, new_version)
             set_dev_classifier(setup_parsed.setup_filename, new_version)
 
@@ -150,6 +166,12 @@ def create_package(
         setup_directory_or_file = os.path.dirname(setup_directory_or_file)
 
     if enable_wheel:
-        run_logged([sys.executable, "setup.py", "bdist_wheel", "-d", dist], prefix="create_wheel", cwd=setup_directory_or_file)
+        run_logged(
+            [sys.executable, "setup.py", "bdist_wheel", "-d", dist], prefix="create_wheel", cwd=setup_directory_or_file
+        )
     if enable_sdist:
-        run_logged([sys.executable, "setup.py", "sdist", "--format", "zip", "-d", dist], prefix="create_sdist", cwd=setup_directory_or_file)
+        run_logged(
+            [sys.executable, "setup.py", "sdist", "--format", "zip", "-d", dist],
+            prefix="create_sdist",
+            cwd=setup_directory_or_file,
+        )

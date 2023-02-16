@@ -37,6 +37,13 @@ from ._models_py3 import CassandraTableGetResults
 from ._models_py3 import CassandraTableListResult
 from ._models_py3 import CassandraTableResource
 from ._models_py3 import Certificate
+from ._models_py3 import ClientEncryptionIncludedPath
+from ._models_py3 import ClientEncryptionKeyCreateUpdateParameters
+from ._models_py3 import ClientEncryptionKeyGetPropertiesResource
+from ._models_py3 import ClientEncryptionKeyGetResults
+from ._models_py3 import ClientEncryptionKeyResource
+from ._models_py3 import ClientEncryptionKeysListResult
+from ._models_py3 import ClientEncryptionPolicy
 from ._models_py3 import ClusterKey
 from ._models_py3 import ClusterResource
 from ._models_py3 import ClusterResourceProperties
@@ -83,6 +90,7 @@ from ._models_py3 import GremlinDatabaseGetPropertiesResource
 from ._models_py3 import GremlinDatabaseGetResults
 from ._models_py3 import GremlinDatabaseListResult
 from ._models_py3 import GremlinDatabaseResource
+from ._models_py3 import GremlinDatabaseRestoreResource
 from ._models_py3 import GremlinGraphCreateUpdateParameters
 from ._models_py3 import GremlinGraphGetPropertiesOptions
 from ._models_py3 import GremlinGraphGetPropertiesResource
@@ -93,6 +101,7 @@ from ._models_py3 import IncludedPath
 from ._models_py3 import Indexes
 from ._models_py3 import IndexingPolicy
 from ._models_py3 import IpAddressOrRange
+from ._models_py3 import KeyWrapMetadata
 from ._models_py3 import ListClusters
 from ._models_py3 import ListDataCenters
 from ._models_py3 import Location
@@ -167,6 +176,14 @@ from ._models_py3 import RegionalServiceResource
 from ._models_py3 import Resource
 from ._models_py3 import RestorableDatabaseAccountGetResult
 from ._models_py3 import RestorableDatabaseAccountsListResult
+from ._models_py3 import RestorableGremlinDatabaseGetResult
+from ._models_py3 import RestorableGremlinDatabasePropertiesResource
+from ._models_py3 import RestorableGremlinDatabasesListResult
+from ._models_py3 import RestorableGremlinGraphGetResult
+from ._models_py3 import RestorableGremlinGraphPropertiesResource
+from ._models_py3 import RestorableGremlinGraphsListResult
+from ._models_py3 import RestorableGremlinResourcesGetResult
+from ._models_py3 import RestorableGremlinResourcesListResult
 from ._models_py3 import RestorableLocationResource
 from ._models_py3 import RestorableMongodbCollectionGetResult
 from ._models_py3 import RestorableMongodbCollectionPropertiesResource
@@ -186,6 +203,11 @@ from ._models_py3 import RestorableSqlDatabasePropertiesResourceDatabase
 from ._models_py3 import RestorableSqlDatabasesListResult
 from ._models_py3 import RestorableSqlResourcesGetResult
 from ._models_py3 import RestorableSqlResourcesListResult
+from ._models_py3 import RestorableTableGetResult
+from ._models_py3 import RestorableTablePropertiesResource
+from ._models_py3 import RestorableTableResourcesGetResult
+from ._models_py3 import RestorableTableResourcesListResult
+from ._models_py3 import RestorableTablesListResult
 from ._models_py3 import RestoreParameters
 from ._models_py3 import Role
 from ._models_py3 import SeedNode
@@ -268,6 +290,7 @@ from ._cosmos_db_management_client_enums import IndexingMode
 from ._cosmos_db_management_client_enums import KeyKind
 from ._cosmos_db_management_client_enums import ManagedCassandraProvisioningState
 from ._cosmos_db_management_client_enums import ManagedCassandraResourceIdentityType
+from ._cosmos_db_management_client_enums import MinimalTlsVersion
 from ._cosmos_db_management_client_enums import MongoRoleDefinitionType
 from ._cosmos_db_management_client_enums import NetworkAclBypass
 from ._cosmos_db_management_client_enums import NodeState
@@ -289,7 +312,7 @@ from ._cosmos_db_management_client_enums import TriggerOperation
 from ._cosmos_db_management_client_enums import TriggerType
 from ._cosmos_db_management_client_enums import UnitType
 from ._patch import __all__ as _patch_all
-from ._patch import *  # type: ignore # pylint: disable=unused-wildcard-import
+from ._patch import *  # pylint: disable=unused-wildcard-import
 from ._patch import patch_sdk as _patch_sdk
 
 __all__ = [
@@ -324,6 +347,13 @@ __all__ = [
     "CassandraTableListResult",
     "CassandraTableResource",
     "Certificate",
+    "ClientEncryptionIncludedPath",
+    "ClientEncryptionKeyCreateUpdateParameters",
+    "ClientEncryptionKeyGetPropertiesResource",
+    "ClientEncryptionKeyGetResults",
+    "ClientEncryptionKeyResource",
+    "ClientEncryptionKeysListResult",
+    "ClientEncryptionPolicy",
     "ClusterKey",
     "ClusterResource",
     "ClusterResourceProperties",
@@ -370,6 +400,7 @@ __all__ = [
     "GremlinDatabaseGetResults",
     "GremlinDatabaseListResult",
     "GremlinDatabaseResource",
+    "GremlinDatabaseRestoreResource",
     "GremlinGraphCreateUpdateParameters",
     "GremlinGraphGetPropertiesOptions",
     "GremlinGraphGetPropertiesResource",
@@ -380,6 +411,7 @@ __all__ = [
     "Indexes",
     "IndexingPolicy",
     "IpAddressOrRange",
+    "KeyWrapMetadata",
     "ListClusters",
     "ListDataCenters",
     "Location",
@@ -454,6 +486,14 @@ __all__ = [
     "Resource",
     "RestorableDatabaseAccountGetResult",
     "RestorableDatabaseAccountsListResult",
+    "RestorableGremlinDatabaseGetResult",
+    "RestorableGremlinDatabasePropertiesResource",
+    "RestorableGremlinDatabasesListResult",
+    "RestorableGremlinGraphGetResult",
+    "RestorableGremlinGraphPropertiesResource",
+    "RestorableGremlinGraphsListResult",
+    "RestorableGremlinResourcesGetResult",
+    "RestorableGremlinResourcesListResult",
     "RestorableLocationResource",
     "RestorableMongodbCollectionGetResult",
     "RestorableMongodbCollectionPropertiesResource",
@@ -473,6 +513,11 @@ __all__ = [
     "RestorableSqlDatabasesListResult",
     "RestorableSqlResourcesGetResult",
     "RestorableSqlResourcesListResult",
+    "RestorableTableGetResult",
+    "RestorableTablePropertiesResource",
+    "RestorableTableResourcesGetResult",
+    "RestorableTableResourcesListResult",
+    "RestorableTablesListResult",
     "RestoreParameters",
     "Role",
     "SeedNode",
@@ -554,6 +599,7 @@ __all__ = [
     "KeyKind",
     "ManagedCassandraProvisioningState",
     "ManagedCassandraResourceIdentityType",
+    "MinimalTlsVersion",
     "MongoRoleDefinitionType",
     "NetworkAclBypass",
     "NodeState",

@@ -18,10 +18,9 @@ from pathlib import Path
 from threading import Thread
 from typing import Dict, Optional, Tuple
 
-import docker
-
 from azure.ai.ml._restclient.v2022_02_01_preview.models import JobBaseData
 from azure.ai.ml._utils._http_utils import HttpPipeline
+from azure.ai.ml._utils.utils import DockerProxy
 from azure.ai.ml.constants._common import (
     AZUREML_RUN_SETUP_DIR,
     AZUREML_RUNS_DIR,
@@ -35,6 +34,7 @@ from azure.ai.ml.exceptions import ErrorCategory, ErrorTarget, JobException
 from azure.core.credentials import TokenCredential
 from azure.core.exceptions import AzureError
 
+docker = DockerProxy()
 module_logger = logging.getLogger(__name__)
 
 
@@ -210,7 +210,7 @@ class CommonRuntimeHelper:
         self.stdout = open(os.path.join(self.common_runtime_temp_folder, "stdout"), "w+")
         self.stderr = open(os.path.join(self.common_runtime_temp_folder, "stderr"), "w+")
 
-    def get_docker_client(self, registry: Dict[str, str]) -> docker.DockerClient:
+    def get_docker_client(self, registry: Dict[str, str]) -> "docker.DockerClient":
         """Retrieves the Docker client for performing docker operations.
 
         :param registry: Registry information
@@ -242,7 +242,7 @@ class CommonRuntimeHelper:
 
         return client
 
-    def copy_bootstrapper_from_container(self, container: docker.models.containers.Container) -> None:
+    def copy_bootstrapper_from_container(self, container: "docker.models.containers.Container") -> None:
         """Copy file/folder from container to local machine.
 
         :param container: Docker container

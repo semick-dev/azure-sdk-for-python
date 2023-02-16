@@ -6,17 +6,17 @@ import pytest
 import yaml
 from marshmallow import ValidationError
 from pytest_mock import MockFixture
-from test_utilities.utils import verify_entity_load_and_dump
+from test_utilities.utils import omit_with_wildcard, verify_entity_load_and_dump
 
-from azure.ai.ml import MLClient, load_job
-from azure.ai.ml._restclient.v2022_02_01_preview.models import JobBaseData as FebRestJob
-from azure.ai.ml._restclient.v2022_06_01_preview.models import JobBase as RestJob
+from azure.ai.ml import MLClient, dsl, load_component, load_job
+from azure.ai.ml._restclient.v2022_12_01_preview.models import JobBase as RestJob
 from azure.ai.ml._schema.automl import AutoMLRegressionSchema
 from azure.ai.ml._utils.utils import dump_yaml_to_file, load_yaml
 from azure.ai.ml.automl import classification
 from azure.ai.ml.constants._common import AssetTypes
+from azure.ai.ml.dsl._group_decorator import group
 from azure.ai.ml.entities import PipelineJob
-from azure.ai.ml.entities._builders import Spark
+from azure.ai.ml.entities._builders import Spark, DataTransfer
 from azure.ai.ml.entities._job.automl.image import (
     ImageClassificationJob,
     ImageClassificationMultilabelJob,
@@ -25,6 +25,7 @@ from azure.ai.ml.entities._job.automl.image import (
 )
 from azure.ai.ml.entities._job.automl.nlp import TextClassificationJob, TextClassificationMultilabelJob, TextNerJob
 from azure.ai.ml.entities._job.automl.tabular import ClassificationJob, ForecastingJob, RegressionJob
+from azure.ai.ml.entities._job.job_resource_configuration import JobResourceConfiguration
 from azure.ai.ml.entities._job.pipeline._io import PipelineInput, _GroupAttrDict
 from azure.ai.ml.exceptions import ValidationException
 
@@ -41,6 +42,7 @@ def load_pipeline_entity_from_rest_json(job_dict) -> PipelineJob:
 @pytest.mark.usefixtures("enable_pipeline_private_preview_features")
 @pytest.mark.timeout(_PIPELINE_JOB_TIMEOUT_SECOND)
 @pytest.mark.unittest
+@pytest.mark.pipeline_test
 class TestPipelineJobEntity:
     def test_automl_node_in_pipeline_regression(self, mock_machinelearning_client: MLClient, mocker: MockFixture):
         test_path = "./tests/test_configs/pipeline_jobs/jobs_with_automl_nodes/onejob_automl_regression.yml"
@@ -195,19 +197,21 @@ class TestPipelineJobEntity:
         assert pipeline.jobs == {}
 
     def test_command_job_with_invalid_mode_type_in_pipeline_deserialize(self):
+        # this json file is to test whether the client can handle the dirty data of node type/mode of the originally
+        # submitted job due to API switching
         rest_job_file = "./tests/test_configs/pipeline_jobs/invalid/with_invalid_job_input_type_mode.json"
         with open(rest_job_file, "r") as f:
             job_dict = yaml.safe_load(f)
-        rest_obj = FebRestJob.from_dict(json.loads(json.dumps(job_dict)))
+        rest_obj = RestJob.from_dict(json.loads(json.dumps(job_dict)))
         pipeline = PipelineJob._from_rest_object(rest_obj)
         pipeline_dict = pipeline._to_dict()
-        assert pipeline_dict["jobs"] == {
+        assert pydash.omit(pipeline_dict["jobs"], *["properties", "hello_python_world_job.properties"]) == {
             "hello_python_world_job": {
-                "environment_variables": {},
                 "inputs": {
                     "sample_input_data": {
+                        "mode": "ro_mount",
                         "type": "uri_folder",
-                        "path": "azureml://datastores/workspaceblobstore/paths/LocalUpload/553d1a28-7933-4017-8321-96c2a9f1fc44/data/",
+                        "path": "azureml://datastores/workspaceblobstore/paths/LocalUpload/22fd2a62-9759-4843-ab92-5bd79c35f6f0/data/",
                     },
                     "sample_input_string": {
                         "mode": "ro_mount",
@@ -215,7 +219,7 @@ class TestPipelineJobEntity:
                     },
                 },
                 "outputs": {"sample_output_data": "${{parent.outputs.pipeline_sample_output_data}}"},
-                "component": "azureml:/subscriptions/96aede12-2f73-41cb-b983-6d11a904839b/resourceGroups/sdk/providers/Microsoft.MachineLearningServices/workspaces/sdk-master/components/azureml_anonymous/versions/6ffc3ff9-8801-4cc4-9285-9f8052b946fe",
+                "component": "azureml:/subscriptions/96aede12-2f73-41cb-b983-6d11a904839b/resourceGroups/chenyin-test-eastus/providers/Microsoft.MachineLearningServices/workspaces/sdk_vnext_cli/components/azureml_anonymous/versions/9904ff48-9cb2-4733-ad1c-eb1eb9940a19",
                 "type": "command",
                 "compute": "azureml:cpu-cluster",
             }
@@ -232,14 +236,8 @@ class TestPipelineJobEntity:
         }
         pipeline_rest_dict["properties"]["jobs"] == {
             "hello_python_world_job": {
-                "resources": None,
-                "distribution": None,
-                "limits": None,
-                "environment_variables": {},
                 "name": "hello_python_world_job",
                 "type": "command",
-                "display_name": None,
-                "tags": {},
                 "computeId": "cpu-cluster",
                 "inputs": {
                     "sample_input_string": {
@@ -327,18 +325,12 @@ class TestPipelineJobEntity:
             "_source": "YAML.JOB",
             "componentId": "xxx",
             "computeId": "xxx",
-            "distribution": None,
-            "environment_variables": {},
             "inputs": {
                 "mltable_output": {
                     "job_input_type": "literal",
                     "value": "${{parent.jobs.regression_node.outputs.best_model}}",
                 }
             },
-            "limits": None,
-            "outputs": {},
-            "resources": None,
-            "tags": {},
             "type": "command",
         }
 
@@ -362,7 +354,7 @@ class TestPipelineJobEntity:
 
         assert actual_dict == {
             "featurization": {"dataset_language": "eng"},
-            "limits": {"max_trials": 1, "timeout_minutes": 60},
+            "limits": {"max_trials": 1, "timeout_minutes": 60, "max_nodes": 1},
             "log_verbosity": "info",
             "outputs": {},
             "primary_metric": "accuracy",
@@ -397,7 +389,7 @@ class TestPipelineJobEntity:
         )
 
         assert actual_dict == {
-            "limits": {"max_trials": 1, "timeout_minutes": 60},
+            "limits": {"max_trials": 1, "timeout_minutes": 60, "max_nodes": 1},
             "log_verbosity": "info",
             "outputs": {},
             "primary_metric": "accuracy",
@@ -426,7 +418,7 @@ class TestPipelineJobEntity:
         actual_dict = pydash.omit(rest_job_dict["properties"]["jobs"]["automl_text_ner"], omit_fields)
 
         assert actual_dict == {
-            "limits": {"max_trials": 1, "timeout_minutes": 60},
+            "limits": {"max_trials": 1, "timeout_minutes": 60, "max_nodes": 1},
             "log_verbosity": "info",
             "outputs": {},
             "primary_metric": "accuracy",
@@ -754,21 +746,20 @@ class TestPipelineJobEntity:
         assert isinstance(node, Spark)
 
         mocker.patch(
-            "azure.ai.ml.operations._operation_orchestrator.OperationOrchestrator.get_asset_arm_id", return_value="xxx"
+            "azure.ai.ml.operations._operation_orchestrator.OperationOrchestrator.get_asset_arm_id", return_value=""
         )
         mocker.patch("azure.ai.ml.operations._job_operations._upload_and_generate_remote_uri", return_value="yyy")
         mock_machinelearning_client.jobs._resolve_arm_id_or_upload_dependencies(job)
 
         rest_job_dict = job._to_rest_object().as_dict()
-        omit_fields = []  # "name", "display_name", "experiment_name", "properties"
+        omit_fields = ["properties"]  # "name", "display_name", "experiment_name", "properties"
         actual_dict = pydash.omit(rest_job_dict["properties"]["jobs"]["add_greeting_column"], omit_fields)
 
         expected_dict = {
             "_source": "YAML.COMPONENT",
-            "archives": None,
             "args": "--file_input ${{inputs.file_input}}",
-            "componentId": "xxx",
-            "computeId": "xxx",
+            "componentId": "",
+            "computeId": "",
             "conf": {
                 "spark.driver.cores": 2,
                 "spark.driver.memory": "1g",
@@ -776,17 +767,13 @@ class TestPipelineJobEntity:
                 "spark.executor.instances": 1,
                 "spark.executor.memory": "1g",
             },
-            "display_name": None,
             "entry": {"file": "add_greeting_column.py", "spark_job_entry_type": "SparkJobPythonEntry"},
             "files": ["my_files.txt"],
             "identity": {"identity_type": "Managed"},
             "inputs": {"file_input": {"job_input_type": "literal", "value": "${{parent.inputs.iris_data}}"}},
-            "jars": None,
             "name": "add_greeting_column",
-            "outputs": {},
             "py_files": ["utils.zip"],
-            "resources": None,
-            "tags": {},
+            "resources": {"instance_type": "standard_e4s_v3", "runtime_version": "3.1.0"},
             "type": "spark",
         }
         assert actual_dict == expected_dict
@@ -795,10 +782,9 @@ class TestPipelineJobEntity:
 
         expected_dict = {
             "_source": "YAML.COMPONENT",
-            "archives": None,
             "args": "--file_input ${{inputs.file_input}} --output ${{outputs.output}}",
-            "componentId": "xxx",
-            "computeId": "xxx",
+            "componentId": "",
+            "computeId": "",
             "conf": {
                 "spark.driver.cores": 2,
                 "spark.driver.memory": "1g",
@@ -806,7 +792,6 @@ class TestPipelineJobEntity:
                 "spark.executor.instances": 1,
                 "spark.executor.memory": "1g",
             },
-            "display_name": None,
             "entry": {"file": "count_by_row.py", "spark_job_entry_type": "SparkJobPythonEntry"},
             "files": ["my_files.txt"],
             "identity": {"identity_type": "Managed"},
@@ -814,19 +799,614 @@ class TestPipelineJobEntity:
             "jars": ["scalaproj.jar"],
             "name": "count_by_row",
             "outputs": {"output": {"type": "literal", "value": "${{parent.outputs.output}}"}},
-            "py_files": None,
-            "resources": None,
-            "tags": {},
+            "resources": {"instance_type": "standard_e4s_v3", "runtime_version": "3.1.0"},
             "type": "spark",
         }
         assert actual_dict == expected_dict
 
+    def test_data_transfer_copy_node_in_pipeline(self, mock_machinelearning_client: MLClient, mocker: MockFixture):
+        test_path = "./tests/test_configs/pipeline_jobs/data_transfer/copy_files.yaml"
+
+        job = load_job(test_path)
+        assert isinstance(job, PipelineJob)
+        node = next(iter(job.jobs.values()))
+        assert isinstance(node, DataTransfer)
+
+        result = job._validate()
+        assert result.passed is True
+
+        mocker.patch(
+            "azure.ai.ml.operations._operation_orchestrator.OperationOrchestrator.get_asset_arm_id", return_value=""
+        )
+        mocker.patch("azure.ai.ml.operations._job_operations._upload_and_generate_remote_uri", return_value="yyy")
+        mock_machinelearning_client.jobs._resolve_arm_id_or_upload_dependencies(job)
+
+        rest_job_dict = job._to_rest_object().as_dict()
+        omit_fields = ["properties"]
+        actual_dict = pydash.omit(rest_job_dict["properties"]["jobs"]["copy_files"], *omit_fields)
+
+        expected_dict = {
+            "_source": "YAML.COMPONENT",
+            "componentId": "",
+            "computeId": "",
+            "data_copy_mode": "merge_with_overwrite",
+            "inputs": {"folder1": {"job_input_type": "literal", "value": "${{parent.inputs.cosmos_folder}}"}},
+            "name": "copy_files",
+            "outputs": {"output_folder": {"type": "literal", "value": "${{parent.outputs.merged_blob}}"}},
+            "task": "copy_data",
+            "type": "data_transfer",
+        }
+        assert actual_dict == expected_dict
+
+    def test_data_transfer_merge_node_in_pipeline(self, mock_machinelearning_client: MLClient, mocker: MockFixture):
+        test_path = "./tests/test_configs/pipeline_jobs/data_transfer/merge_files.yaml"
+
+        job = load_job(test_path)
+        assert isinstance(job, PipelineJob)
+        node = next(iter(job.jobs.values()))
+        assert isinstance(node, DataTransfer)
+
+        result = job._validate()
+        assert result.passed is True
+
+        mocker.patch(
+            "azure.ai.ml.operations._operation_orchestrator.OperationOrchestrator.get_asset_arm_id", return_value=""
+        )
+        mocker.patch("azure.ai.ml.operations._job_operations._upload_and_generate_remote_uri", return_value="yyy")
+        mock_machinelearning_client.jobs._resolve_arm_id_or_upload_dependencies(job)
+
+        rest_job_dict = job._to_rest_object().as_dict()
+        omit_fields = ["properties"]
+        actual_dict = pydash.omit(rest_job_dict["properties"]["jobs"]["merge_files"], *omit_fields)
+
+        expected_dict = {
+            "_source": "YAML.COMPONENT",
+            "componentId": "",
+            "computeId": "",
+            "data_copy_mode": "merge_with_overwrite",
+            "inputs": {
+                "folder1": {"job_input_type": "literal", "value": "${{parent.inputs.cosmos_folder}}"},
+                "folder2": {"job_input_type": "literal", "value": "${{parent.inputs.cosmos_folder_dup}}"},
+            },
+            "name": "merge_files",
+            "outputs": {"output_folder": {"type": "literal", "value": "${{parent.outputs.merged_blob}}"}},
+            "task": "copy_data",
+            "type": "data_transfer",
+        }
+        assert actual_dict == expected_dict
+
+    def test_inline_data_transfer_merge_node_in_pipeline(
+        self, mock_machinelearning_client: MLClient, mocker: MockFixture
+    ):
+        test_path = "./tests/test_configs/pipeline_jobs/data_transfer/merge_files_job.yaml"
+
+        job = load_job(test_path)
+        assert isinstance(job, PipelineJob)
+        node = next(iter(job.jobs.values()))
+        assert isinstance(node, DataTransfer)
+
+        result = job._validate()
+        assert result.passed is True
+
+        mocker.patch(
+            "azure.ai.ml.operations._operation_orchestrator.OperationOrchestrator.get_asset_arm_id", return_value=""
+        )
+        mocker.patch("azure.ai.ml.operations._job_operations._upload_and_generate_remote_uri", return_value="yyy")
+        mock_machinelearning_client.jobs._resolve_arm_id_or_upload_dependencies(job)
+
+        rest_job_dict = job._to_rest_object().as_dict()
+        omit_fields = ["properties"]
+        actual_dict = pydash.omit(rest_job_dict["properties"]["jobs"]["merge_files_job"], *omit_fields)
+
+        expected_dict = {
+            "data_copy_mode": "merge_with_overwrite",
+            "_source": "YAML.JOB",
+            "componentId": "",
+            "computeId": "",
+            "inputs": {
+                "folder1": {"job_input_type": "literal", "value": "${{parent.inputs.cosmos_folder}}"},
+                "folder2": {"job_input_type": "literal", "value": "${{parent.inputs.cosmos_folder_dup}}"},
+            },
+            "name": "merge_files_job",
+            "outputs": {"output_folder": {"type": "literal", "value": "${{parent.outputs.merged_blob}}"}},
+            "type": "data_transfer",
+            "task": "copy_data",
+        }
+        assert actual_dict == expected_dict
+
+    def test_inline_data_transfer_import_database_node_in_pipeline(
+        self, mock_machinelearning_client: MLClient, mocker: MockFixture
+    ):
+        test_path = "./tests/test_configs/pipeline_jobs/data_transfer/import_database_to_blob.yaml"
+
+        job = load_job(test_path)
+        assert isinstance(job, PipelineJob)
+        node = next(iter(job.jobs.values()))
+        assert isinstance(node, DataTransfer)
+
+        result = job._validate()
+        assert result.passed is True
+
+        mocker.patch(
+            "azure.ai.ml.operations._operation_orchestrator.OperationOrchestrator.get_asset_arm_id", return_value=""
+        )
+        mocker.patch("azure.ai.ml.operations._job_operations._upload_and_generate_remote_uri", return_value="yyy")
+        mock_machinelearning_client.jobs._resolve_arm_id_or_upload_dependencies(job)
+
+        omit_fields = [
+            "properties.jobs.snowflake_blob.componentId",
+            "properties.jobs.snowflake_blob_node_input.componentId",
+        ]
+        rest_job_dict = pydash.omit(job._to_rest_object().as_dict(), *omit_fields)
+
+        assert rest_job_dict == {
+            "properties": {
+                "compute_id": "",
+                "description": "pipeline with data transfer components",
+                "inputs": {
+                    "query_source_snowflake": {
+                        "job_input_type": "literal",
+                        "value": "select * from TPCH_SF1000.PARTSUPP limit 10",
+                    }
+                },
+                "is_archived": False,
+                "job_type": "Pipeline",
+                "jobs": {
+                    "snowflake_blob": {
+                        "_source": "BUILTIN",
+                        "computeId": "",
+                        "name": "snowflake_blob",
+                        "outputs": {
+                            "sink": {
+                                "job_output_type": "mltable",
+                                "uri": "azureml://datastores/workspaceblobstore_sas/paths/importjob/${{name}}/output_dir/snowflake/",
+                            }
+                        },
+                        "source": {
+                            "connection": "azureml:my_snowflake_connection",
+                            "query": "${{parent.inputs.query_source_snowflake}}",
+                            "type": "database",
+                        },
+                        "task": "import_data",
+                        "type": "data_transfer",
+                    },
+                    "snowflake_blob_node_input": {
+                        "_source": "BUILTIN",
+                        "computeId": "",
+                        "name": "snowflake_blob_node_input",
+                        "outputs": {
+                            "sink": {
+                                "job_output_type": "mltable",
+                                "uri": "azureml://datastores/workspaceblobstore_sas/paths/importjob/${{name}}/output_dir/snowflake/",
+                            }
+                        },
+                        "source": {
+                            "connection": "azureml:my_snowflake_connection",
+                            "query": "select * from TPCH_SF1000.PARTSUPP limit 10",
+                            "type": "database",
+                        },
+                        "task": "import_data",
+                        "type": "data_transfer",
+                    },
+                },
+                "outputs": {},
+                "properties": {},
+                "settings": {"_source": "YAML.JOB", "default_compute": "", "default_datastore": ""},
+                "tags": {},
+            }
+        }
+
+    def test_inline_data_transfer_import_stored_database_node_in_pipeline(
+        self, mock_machinelearning_client: MLClient, mocker: MockFixture
+    ):
+        test_path = "./tests/test_configs/pipeline_jobs/data_transfer/import_stored_database_to_blob.yaml"
+
+        job = load_job(test_path)
+        assert isinstance(job, PipelineJob)
+        node = next(iter(job.jobs.values()))
+        assert isinstance(node, DataTransfer)
+
+        result = job._validate()
+        assert result.passed is True
+
+        mocker.patch(
+            "azure.ai.ml.operations._operation_orchestrator.OperationOrchestrator.get_asset_arm_id", return_value=""
+        )
+        mocker.patch("azure.ai.ml.operations._job_operations._upload_and_generate_remote_uri", return_value="yyy")
+        mock_machinelearning_client.jobs._resolve_arm_id_or_upload_dependencies(job)
+
+        omit_fields = [
+            "properties.jobs.snowflake_blob.componentId",
+        ]
+        rest_job_dict = pydash.omit(job._to_rest_object().as_dict(), *omit_fields)
+
+        assert rest_job_dict == {
+            "properties": {
+                "compute_id": "",
+                "description": "pipeline with data transfer components",
+                "inputs": {},
+                "is_archived": False,
+                "job_type": "Pipeline",
+                "jobs": {
+                    "snowflake_blob": {
+                        "_source": "BUILTIN",
+                        "computeId": "",
+                        "name": "snowflake_blob",
+                        "outputs": {"sink": {"job_output_type": "mltable"}},
+                        "source": {
+                            "connection": "azureml:my_sql_connection",
+                            "stored_procedure": "SelectEmployeeByJobAndDepartment",
+                            "stored_procedure_params": [
+                                {"name": "job", "type": "String", "value": "Engineer"},
+                                {"name": "department", "type": "String", "value": "Engineering"},
+                            ],
+                            "type": "database",
+                        },
+                        "task": "import_data",
+                        "type": "data_transfer",
+                    }
+                },
+                "outputs": {},
+                "properties": {},
+                "settings": {"_source": "YAML.JOB", "default_compute": "", "default_datastore": ""},
+                "tags": {},
+            }
+        }
+
+    def test_inline_data_transfer_import_file_system_node_in_pipeline(
+        self, mock_machinelearning_client: MLClient, mocker: MockFixture
+    ):
+        test_path = "./tests/test_configs/pipeline_jobs/data_transfer/import_file_system_to_blob.yaml"
+
+        job = load_job(test_path)
+        assert isinstance(job, PipelineJob)
+        node = next(iter(job.jobs.values()))
+        assert isinstance(node, DataTransfer)
+
+        result = job._validate()
+        assert result.passed is True
+
+        mocker.patch(
+            "azure.ai.ml.operations._operation_orchestrator.OperationOrchestrator.get_asset_arm_id", return_value=""
+        )
+        mocker.patch("azure.ai.ml.operations._job_operations._upload_and_generate_remote_uri", return_value="yyy")
+        mock_machinelearning_client.jobs._resolve_arm_id_or_upload_dependencies(job)
+
+        omit_fields = [
+            "properties.jobs.s3_blob.componentId",
+            "properties.jobs.s3_blob_input.componentId",
+        ]
+        rest_job_dict = pydash.omit(job._to_rest_object().as_dict(), *omit_fields)
+
+        assert rest_job_dict == {
+            "properties": {
+                "compute_id": "",
+                "description": "pipeline with data transfer components",
+                "inputs": {
+                    "connection_target": {"job_input_type": "literal", "value": "azureml:my-s3-connection"},
+                    "path_source_s3": {"job_input_type": "literal", "value": "test1/*"},
+                },
+                "is_archived": False,
+                "job_type": "Pipeline",
+                "jobs": {
+                    "s3_blob": {
+                        "_source": "BUILTIN",
+                        "computeId": "",
+                        "name": "s3_blob",
+                        "outputs": {
+                            "sink": {
+                                "job_output_type": "uri_folder",
+                                "uri": "azureml://datastores/workspaceblobstore/paths/importjob/${{name}}/output_dir/s3//",
+                            }
+                        },
+                        "source": {
+                            "connection": "${{parent.inputs.connection_target}}",
+                            "path": "${{parent.inputs.path_source_s3}}",
+                            "type": "file_system",
+                        },
+                        "task": "import_data",
+                        "type": "data_transfer",
+                    },
+                    "s3_blob_input": {
+                        "_source": "BUILTIN",
+                        "computeId": "",
+                        "name": "s3_blob_input",
+                        "outputs": {
+                            "sink": {
+                                "job_output_type": "uri_folder",
+                                "uri": "azureml://datastores/workspaceblobstore/paths/importjob/${{name}}/output_dir/s3//",
+                            }
+                        },
+                        "source": {"connection": "azureml:my-s3-connection", "path": "test1/*", "type": "file_system"},
+                        "task": "import_data",
+                        "type": "data_transfer",
+                    },
+                },
+                "outputs": {},
+                "properties": {},
+                "settings": {"_source": "YAML.JOB", "default_compute": "", "default_datastore": ""},
+                "tags": {},
+            }
+        }
+
+    def test_inline_data_transfer_export_database_node_in_pipeline(
+        self, mock_machinelearning_client: MLClient, mocker: MockFixture
+    ):
+        test_path = "./tests/test_configs/pipeline_jobs/data_transfer/export_database_to_blob.yaml"
+
+        job = load_job(test_path)
+        assert isinstance(job, PipelineJob)
+        node = next(iter(job.jobs.values()))
+        assert isinstance(node, DataTransfer)
+
+        result = job._validate()
+        assert result.passed is True
+
+        mocker.patch(
+            "azure.ai.ml.operations._operation_orchestrator.OperationOrchestrator.get_asset_arm_id", return_value=""
+        )
+        mocker.patch("azure.ai.ml.operations._job_operations._upload_and_generate_remote_uri", return_value="yyy")
+        mock_machinelearning_client.jobs._resolve_arm_id_or_upload_dependencies(job)
+
+        omit_fields = [
+            "properties.jobs.blob_azuresql.componentId",
+            "properties.jobs.blob_azuresql_node_input.componentId",
+        ]
+        rest_job_dict = pydash.omit(job._to_rest_object().as_dict(), *omit_fields)
+
+        assert rest_job_dict == {
+            "properties": {
+                "compute_id": "",
+                "description": "pipeline with data transfer components",
+                "inputs": {
+                    "connection_target_azuresql": {
+                        "job_input_type": "literal",
+                        "value": "azureml:my_export_azuresqldb_connection",
+                    },
+                    "cosmos_folder": {"job_input_type": "uri_file", "uri": "yyy"},
+                    "table_name": {"job_input_type": "literal", "value": "dbo.Persons"},
+                },
+                "is_archived": False,
+                "job_type": "Pipeline",
+                "jobs": {
+                    "blob_azuresql": {
+                        "_source": "BUILTIN",
+                        "computeId": "",
+                        "inputs": {
+                            "source": {"job_input_type": "literal", "value": "${{parent.inputs.cosmos_folder}}"}
+                        },
+                        "name": "blob_azuresql",
+                        "sink": {
+                            "connection": "${{parent.inputs.connection_target_azuresql}}",
+                            "table_name": "${{parent.inputs.table_name}}",
+                            "type": "database",
+                        },
+                        "task": "export_data",
+                        "type": "data_transfer",
+                    },
+                    "blob_azuresql_node_input": {
+                        "_source": "BUILTIN",
+                        "computeId": "",
+                        "inputs": {"source": {"job_input_type": "uri_file", "uri": "yyy"}},
+                        "name": "blob_azuresql_node_input",
+                        "sink": {
+                            "connection": "azureml:my_export_azuresqldb_connection",
+                            "table_name": "dbo.Persons",
+                            "type": "database",
+                        },
+                        "task": "export_data",
+                        "type": "data_transfer",
+                    },
+                },
+                "outputs": {},
+                "properties": {},
+                "settings": {"_source": "YAML.JOB", "default_compute": "", "default_datastore": ""},
+                "tags": {},
+            }
+        }
+
+    def test_inline_data_transfer_export_file_system_node_in_pipeline(
+        self, mock_machinelearning_client: MLClient, mocker: MockFixture
+    ):
+        test_path = "./tests/test_configs/pipeline_jobs/data_transfer/export_file_system_to_blob.yaml"
+
+        job = load_job(test_path)
+        assert isinstance(job, PipelineJob)
+        node = next(iter(job.jobs.values()))
+        assert isinstance(node, DataTransfer)
+
+        result = job._validate()
+        assert result.passed is True
+
+        mocker.patch(
+            "azure.ai.ml.operations._operation_orchestrator.OperationOrchestrator.get_asset_arm_id", return_value=""
+        )
+        mocker.patch("azure.ai.ml.operations._job_operations._upload_and_generate_remote_uri", return_value="yyy")
+        mock_machinelearning_client.jobs._resolve_arm_id_or_upload_dependencies(job)
+
+        omit_fields = [
+            "properties.jobs.s3_blob_input.componentId",
+            "properties.jobs.s3_blob.componentId",
+        ]
+        rest_job_dict = pydash.omit(job._to_rest_object().as_dict(), *omit_fields)
+
+        assert rest_job_dict == {
+            "properties": {
+                "compute_id": "",
+                "description": "pipeline with data transfer components",
+                "inputs": {
+                    "connection_target": {"job_input_type": "literal", "value": "azureml:my_s3_connection"},
+                    "cosmos_folder": {
+                        "job_input_type": "uri_folder",
+                        "uri": "azureml://datastores/my_cosmos/paths/source_cosmos",
+                    },
+                    "path_source_s3": {"job_input_type": "literal", "value": "s3://my_bucket/my_folder"},
+                },
+                "is_archived": False,
+                "job_type": "Pipeline",
+                "jobs": {
+                    "s3_blob": {
+                        "_source": "BUILTIN",
+                        "computeId": "",
+                        "inputs": {
+                            "source": {"job_input_type": "literal", "value": "${{parent.inputs.cosmos_folder}}"}
+                        },
+                        "name": "s3_blob",
+                        "sink": {
+                            "connection": "${{parent.inputs.connection_target}}",
+                            "path": "${{parent.inputs.path_source_s3}}",
+                            "type": "file_system",
+                        },
+                        "task": "export_data",
+                        "type": "data_transfer",
+                    },
+                    "s3_blob_input": {
+                        "_source": "BUILTIN",
+                        "computeId": "",
+                        "inputs": {
+                            "source": {
+                                "job_input_type": "uri_folder",
+                                "uri": "azureml://datastores/my_cosmos/paths/source_cosmos",
+                            }
+                        },
+                        "name": "s3_blob_input",
+                        "sink": {
+                            "connection": "azureml:my_s3_connection",
+                            "path": "s3://my_bucket/my_folder",
+                            "type": "file_system",
+                        },
+                        "task": "export_data",
+                        "type": "data_transfer",
+                    },
+                },
+                "outputs": {},
+                "properties": {},
+                "settings": {"_source": "YAML.JOB", "default_compute": "", "default_datastore": ""},
+                "tags": {},
+            }
+        }
+
+    def test_data_transfer_multi_node_in_pipeline(self, mock_machinelearning_client: MLClient, mocker: MockFixture):
+        test_path = "./tests/test_configs/pipeline_jobs/data_transfer/pipeline_with_mutil_task.yaml"
+
+        job = load_job(test_path)
+        assert isinstance(job, PipelineJob)
+        node = next(iter(job.jobs.values()))
+        assert isinstance(node, DataTransfer)
+
+        result = job._validate()
+        assert result.passed is True
+
+        mocker.patch(
+            "azure.ai.ml.operations._operation_orchestrator.OperationOrchestrator.get_asset_arm_id", return_value=""
+        )
+        mocker.patch("azure.ai.ml.operations._job_operations._upload_and_generate_remote_uri", return_value="yyy")
+        mock_machinelearning_client.jobs._resolve_arm_id_or_upload_dependencies(job)
+
+        rest_job_dict = job._to_rest_object().as_dict()
+        omit_fields = [
+            "properties.jobs.*.componentId",
+        ]
+        actual_dict = omit_with_wildcard(rest_job_dict, *omit_fields)
+
+        assert actual_dict == {
+            "properties": {
+                "compute_id": "",
+                "description": "pipeline with data transfer components",
+                "inputs": {
+                    "connection_target_s3": {"job_input_type": "literal", "value": "azureml:my_s3_connection"},
+                    "path_source_s3": {"job_input_type": "literal", "value": "s3://my_bucket/my_folder"},
+                    "query_source_snowflake": {"job_input_type": "literal", "value": "SELECT * FROM my_table"},
+                },
+                "is_archived": False,
+                "job_type": "Pipeline",
+                "jobs": {
+                    "blob_s3": {
+                        "_source": "BUILTIN",
+                        "computeId": "",
+                        "inputs": {
+                            "source": {
+                                "job_input_type": "literal",
+                                "value": "${{parent.jobs.merge_files.outputs.output_folder}}",
+                            }
+                        },
+                        "name": "blob_s3",
+                        "sink": {
+                            "connection": "${{parent.inputs.connection_target_s3}}",
+                            "path": "${{parent.inputs.path_source_s3}}",
+                            "type": "file_system",
+                        },
+                        "task": "export_data",
+                        "type": "data_transfer",
+                    },
+                    "merge_files": {
+                        "_source": "YAML.COMPONENT",
+                        "computeId": "",
+                        "data_copy_mode": "merge_with_overwrite",
+                        "inputs": {
+                            "folder1": {"job_input_type": "literal", "value": "${{parent.jobs.s3_blob.outputs.sink}}"},
+                            "folder2": {
+                                "job_input_type": "literal",
+                                "value": "${{parent.jobs.snowflake_blob.outputs.sink}}",
+                            },
+                        },
+                        "name": "merge_files",
+                        "outputs": {"output_folder": {"type": "literal", "value": "${{parent.outputs.merged_blob}}"}},
+                        "task": "copy_data",
+                        "type": "data_transfer",
+                    },
+                    "s3_blob": {
+                        "_source": "BUILTIN",
+                        "computeId": "",
+                        "name": "s3_blob",
+                        "outputs": {
+                            "sink": {
+                                "job_output_type": "uri_folder",
+                                "uri": "azureml://datastores/managed/paths/some_path",
+                            }
+                        },
+                        "source": {
+                            "connection": "azureml:my_s3_connection",
+                            "path": "${{parent.inputs.path_source_s3}}",
+                            "type": "file_system",
+                        },
+                        "task": "import_data",
+                        "type": "data_transfer",
+                    },
+                    "snowflake_blob": {
+                        "_source": "BUILTIN",
+                        "computeId": "",
+                        "name": "snowflake_blob",
+                        "outputs": {"sink": {"job_output_type": "mltable"}},
+                        "source": {
+                            "connection": "azureml:my_snowflake_connection",
+                            "query": "${{parent.inputs.query_source_snowflake}}",
+                            "type": "database",
+                        },
+                        "task": "import_data",
+                        "type": "data_transfer",
+                    },
+                },
+                "outputs": {
+                    "merged_blob": {
+                        "job_output_type": "uri_folder",
+                        "uri": "azureml://datastores/my_blob/paths/merged_blob",
+                    }
+                },
+                "properties": {},
+                "settings": {"_source": "YAML.JOB", "default_compute": "", "default_datastore": ""},
+                "tags": {},
+            }
+        }
+
     def test_default_user_identity_if_empty_identity_input(self):
-        test_path = "./tests/test_configs/pipeline_jobs/shakespear-sample-and-word-count-using-spark/pipeline.yml"
+        test_path = "./tests/test_configs/pipeline_jobs/shakespear_sample/pipeline.yml"
         job = load_job(test_path)
         omit_fields = [
             "jobs.sample_word.componentId",
             "jobs.count_word.componentId",
+            "jobs.sample_word.properties",
+            "jobs.count_word.properties",
         ]
         actual_job = pydash.omit(job._to_rest_object().properties.as_dict(), *omit_fields)
         assert actual_job == {
@@ -840,39 +1420,28 @@ class TestPipelineJobEntity:
             "jobs": {
                 "count_word": {
                     "_source": "YAML.JOB",
-                    "archives": None,
                     "args": "--input1 ${{inputs.input1}}",
-                    "computeId": "spark31",
                     "conf": {
                         "spark.driver.cores": 1,
                         "spark.driver.memory": "2g",
                         "spark.executor.cores": 2,
                         "spark.executor.instances": 4,
                         "spark.executor.memory": "2g",
-                        "spark.yarn.dist.jars": "https://foobaradrama2.azurefd.net/latest/hadoop-azureml-fs.jar",
                     },
-                    "display_name": None,
                     "entry": {"file": "wordcount.py", "spark_job_entry_type": "SparkJobPythonEntry"},
-                    "files": None,
-                    "identity": {"identity_type": "Managed"},
+                    "identity": {"identity_type": "UserIdentity"},
                     "inputs": {
                         "input1": {"job_input_type": "literal", "value": "${{parent.jobs.sample_word.outputs.output1}}"}
                     },
-                    "jars": None,
                     "name": "count_word",
-                    "outputs": {},
-                    "py_files": None,
-                    "resources": None,
-                    "tags": {},
+                    "resources": {"instance_type": "standard_e4s_v3", "runtime_version": "3.1.0"},
                     "type": "spark",
                 },
                 "sample_word": {
                     "_source": "YAML.JOB",
-                    "archives": None,
                     "args": "--input1 ${{inputs.input1}} --output2 "
                     "${{outputs.output1}} --my_sample_rate "
                     "${{inputs.sample_rate}}",
-                    "computeId": None,
                     "conf": {
                         "spark.driver.cores": 1,
                         "spark.driver.memory": "2g",
@@ -883,20 +1452,15 @@ class TestPipelineJobEntity:
                         "spark.executor.instances": 1,
                         "spark.executor.memory": "2g",
                     },
-                    "display_name": None,
                     "entry": {"file": "sampleword.py", "spark_job_entry_type": "SparkJobPythonEntry"},
-                    "files": None,
                     "identity": {"identity_type": "UserIdentity"},
                     "inputs": {
                         "input1": {"job_input_type": "literal", "value": "${{parent.inputs.input1}}"},
                         "sample_rate": {"job_input_type": "literal", "value": "${{parent.inputs.sample_rate}}"},
                     },
-                    "jars": None,
                     "name": "sample_word",
                     "outputs": {"output1": {"type": "literal", "value": "${{parent.outputs.output1}}"}},
-                    "py_files": None,
-                    "resources": {"instance_type": "Standard_E8S_V3", "runtime_version": "3.1.0"},
-                    "tags": {},
+                    "resources": {"instance_type": "standard_e4s_v3", "runtime_version": "3.1.0"},
                     "type": "spark",
                 },
             },
@@ -920,9 +1484,8 @@ class TestPipelineJobEntity:
     ):
         test_path = "./tests/test_configs/pipeline_jobs/invalid/pipeline_job_with_spark_job_with_invalid_code.yml"
         job = load_job(test_path)
-        with pytest.raises(ValidationException) as ve:
-            job._validate()
-            assert ve.message == "Entry doesn't exist"
+        result = job._validate()
+        assert "jobs.hello_world.component.entry" in result.error_messages
 
     def test_spark_node_in_pipeline_with_git_code(
         self,
@@ -956,7 +1519,6 @@ class TestPipelineJobEntity:
                         "inputs": {"model_input": {"type": "uri_folder"}, "test_data": {"type": "uri_folder"}},
                         "is_deterministic": True,
                         "outputs": {"score_output": {"type": "uri_folder"}},
-                        "tags": {},
                         "type": "command",
                         "version": "1",
                     },
@@ -973,7 +1535,6 @@ class TestPipelineJobEntity:
                         "inputs": {"model_input": {"type": "mltable"}, "test_data": {"type": "uri_folder"}},
                         "is_deterministic": True,
                         "outputs": {"score_output": {"type": "uri_folder"}},
-                        "tags": {},
                         "type": "command",
                         "version": "1",
                     },
@@ -990,7 +1551,6 @@ class TestPipelineJobEntity:
                         "inputs": {"model_input": {"type": "uri_folder"}, "test_data": {"type": "uri_folder"}},
                         "is_deterministic": True,
                         "outputs": {"score_output": {"type": "uri_folder"}},
-                        "tags": {},
                         "type": "command",
                         "version": "1",
                     },
@@ -1051,13 +1611,7 @@ class TestPipelineJobEntity:
                 "train_job": {
                     "type": "command",
                     "_source": "YAML.JOB",
-                    "resources": None,
-                    "distribution": None,
-                    "limits": None,
-                    "environment_variables": {},
                     "name": "train_job",
-                    "display_name": None,
-                    "tags": {},
                     "computeId": "xxx",
                     "inputs": {
                         "training_data": {"job_input_type": "literal", "value": "${{parent.inputs.training_input}}"},
@@ -1109,13 +1663,7 @@ class TestPipelineJobEntity:
                 "train_job": {
                     "type": "command",
                     "_source": "YAML.JOB",
-                    "resources": None,
-                    "distribution": None,
-                    "limits": None,
-                    "environment_variables": {},
                     "name": "train_job",
-                    "display_name": None,
-                    "tags": {},
                     "computeId": "xxx",
                     "inputs": {
                         "training_data": {"job_input_type": "literal", "value": "${{parent.inputs.training_input}}"},
@@ -1151,8 +1699,7 @@ class TestPipelineJobEntity:
 
         actual_dict = job._to_rest_object().as_dict()["properties"]
 
-        assert actual_dict == {
-            "properties": {},
+        assert pydash.omit(actual_dict, *["properties", "jobs.train_job.properties"]) == {
             "tags": {},
             "is_archived": False,
             "compute_id": "xxx",
@@ -1170,13 +1717,7 @@ class TestPipelineJobEntity:
                 "train_job": {
                     "type": "command",
                     "_source": "YAML.JOB",
-                    "resources": None,
-                    "distribution": None,
-                    "limits": None,
-                    "environment_variables": {},
                     "name": "train_job",
-                    "display_name": None,
-                    "tags": {},
                     "computeId": "xxx",
                     "inputs": {
                         "training_data": {
@@ -1223,8 +1764,7 @@ class TestPipelineJobEntity:
 
         actual_dict = job._to_rest_object().as_dict()["properties"]
 
-        assert actual_dict == {
-            "properties": {},
+        assert pydash.omit(actual_dict, *["properties", "jobs.train_job.properties"]) == {
             "tags": {},
             "is_archived": False,
             "compute_id": "xxx",
@@ -1239,13 +1779,7 @@ class TestPipelineJobEntity:
                 "train_job": {
                     "type": "command",
                     "_source": "YAML.JOB",
-                    "resources": None,
-                    "distribution": None,
-                    "limits": None,
-                    "environment_variables": {},
                     "name": "train_job",
-                    "display_name": None,
-                    "tags": {},
                     "computeId": "xxx",
                     "inputs": {
                         "training_data": {
@@ -1292,8 +1826,7 @@ class TestPipelineJobEntity:
 
         actual_dict = job._to_rest_object().as_dict()["properties"]
 
-        assert actual_dict == {
-            "properties": {},
+        assert pydash.omit(actual_dict, *["properties", "jobs.train_job.properties"]) == {
             "tags": {},
             "is_archived": False,
             "compute_id": "xxx",
@@ -1308,13 +1841,7 @@ class TestPipelineJobEntity:
                 "train_job": {
                     "type": "command",
                     "_source": "YAML.JOB",
-                    "resources": None,
-                    "distribution": None,
-                    "limits": None,
-                    "environment_variables": {},
                     "name": "train_job",
-                    "display_name": None,
-                    "tags": {},
                     "computeId": "xxx",
                     "inputs": {
                         "training_data": {
@@ -1393,14 +1920,6 @@ class TestPipelineJobEntity:
             },
         }
 
-    def test_pipeline_with_init_finalize(self) -> None:
-        pipeline_job = load_job("./tests/test_configs/pipeline_jobs/pipeline_job_init_finalize.yaml")
-        assert pipeline_job.settings.on_init == "a"
-        assert pipeline_job.settings.on_finalize == "c"
-        pipeline_job_dict = pipeline_job._to_rest_object().as_dict()
-        assert pipeline_job_dict["properties"]["settings"]["on_init"] == "a"
-        assert pipeline_job_dict["properties"]["settings"]["on_finalize"] == "c"
-
     def test_non_string_pipeline_node_input(self):
         test_path = "./tests/test_configs/pipeline_jobs/rest_non_string_input_pipeline.json"
         with open(test_path, "r") as f:
@@ -1432,3 +1951,144 @@ class TestPipelineJobEntity:
             },
             "type": "command",
         }
+
+    def test_job_properties(self):
+        pipeline_job: PipelineJob = load_job(
+            source="./tests/test_configs/pipeline_jobs/pipeline_job_with_properties.yml"
+        )
+        pipeline_dict = pipeline_job._to_dict()
+        rest_pipeline_dict = pipeline_job._to_rest_object().as_dict()["properties"]
+        assert pipeline_dict["properties"] == {"AZURE_ML_PathOnCompute_input_data": "/tmp/test"}
+        assert rest_pipeline_dict["properties"] == pipeline_dict["properties"]
+        for name, node_dict in pipeline_dict["jobs"].items():
+            rest_node_dict = rest_pipeline_dict["jobs"][name]
+            assert len(node_dict["properties"]) == 1
+            assert "AZURE_ML_PathOnCompute_" in list(node_dict["properties"].keys())[0]
+            assert node_dict["properties"] == rest_node_dict["properties"]
+
+    def test_comment_in_pipeline(self) -> None:
+        pipeline_job = load_job(source="./tests/test_configs/pipeline_jobs/helloworld_pipeline_job_with_comment.yml")
+        pipeline_dict = pipeline_job._to_dict()
+        rest_pipeline_dict = pipeline_job._to_rest_object().as_dict()["properties"]
+        assert pipeline_dict["jobs"]["hello_world_component"]["comment"] == "arbitrary string"
+        assert rest_pipeline_dict["jobs"]["hello_world_component"]["comment"] == "arbitrary string"
+
+    def test_pipeline_node_default_output(self):
+        test_path = "./tests/test_configs/pipeline_jobs/helloworld_pipeline_job_with_component_output.yml"
+        pipeline: PipelineJob = load_job(source=test_path)
+
+        # pipeline level output
+        pipeline_output = pipeline.outputs["job_out_path_2"]
+        assert pipeline_output.mode == "upload"
+
+        # other node level output tests can be found in
+        # dsl/unittests/test_component_func.py::TestComponentFunc::test_component_outputs
+        # data-binding-expression
+        with pytest.raises(ValidationException, match="<class '.*'> does not support setting path."):
+            pipeline.jobs["merge_component_outputs"].outputs["component_out_path_1"].path = "xxx"
+
+    def test_pipeline_node_with_identity(self):
+        test_path = "./tests/test_configs/pipeline_jobs/helloworld_pipeline_job_with_identity.yml"
+        pipeline_job: PipelineJob = load_job(source=test_path)
+
+        omit_fields = ["jobs.*.componentId", "jobs.*._source"]
+        actual_dict = omit_with_wildcard(pipeline_job._to_rest_object().as_dict()["properties"], *omit_fields)
+        assert actual_dict["jobs"] == {
+            "hello_world_component": {
+                "computeId": "cpu-cluster",
+                "identity": {"type": "user_identity"},
+                "inputs": {
+                    "component_in_number": {"job_input_type": "literal", "value": "${{parent.inputs.job_in_number}}"},
+                    "component_in_path": {"job_input_type": "literal", "value": "${{parent.inputs.job_in_path}}"},
+                },
+                "name": "hello_world_component",
+                "type": "command",
+            },
+            "hello_world_component_2": {
+                "computeId": "cpu-cluster",
+                "identity": {"type": "aml_token"},
+                "inputs": {
+                    "component_in_number": {
+                        "job_input_type": "literal",
+                        "value": "${{parent.inputs.job_in_other_number}}",
+                    },
+                    "component_in_path": {"job_input_type": "literal", "value": "${{parent.inputs.job_in_path}}"},
+                },
+                "name": "hello_world_component_2",
+                "type": "command",
+            },
+            "hello_world_component_3": {
+                "computeId": "cpu-cluster",
+                "identity": {"type": "user_identity"},
+                "inputs": {
+                    "component_in_number": {
+                        "job_input_type": "literal",
+                        "value": "${{parent.inputs.job_in_other_number}}",
+                    },
+                    "component_in_path": {"job_input_type": "literal", "value": "${{parent.inputs.job_in_path}}"},
+                },
+                "name": "hello_world_component_3",
+                "type": "command",
+            },
+        }
+
+    def test_pipeline_parameter_with_empty_value(self, client: MLClient) -> None:
+        input_types_func = load_component(source="./tests/test_configs/components/input_types_component.yml")
+
+        @group
+        class InputGroup:
+            group_empty_str: str = ""
+            group_none_str: str = None
+
+        # Construct pipeline
+        @dsl.pipeline(
+            default_compute="cpu-cluster",
+            description="This is the basic pipeline with empty_value",
+        )
+        def empty_value_pipeline(
+            integer: int, boolean: bool, number: float, str_param: str, empty_str: str, input_group: InputGroup
+        ):
+            input_types_func(
+                component_in_string=str_param,
+                component_in_ranged_integer=integer,
+                component_in_boolean=boolean,
+                component_in_ranged_number=number,
+            )
+            input_types_func(component_in_string=empty_str)
+            input_types_func(component_in_string=input_group.group_empty_str)
+            input_types_func(component_in_string=input_group.group_none_str)
+
+        pipeline = empty_value_pipeline(
+            integer=0, boolean=False, number=0, str_param="str_param", empty_str="", input_group=InputGroup()
+        )
+        rest_obj = pipeline._to_rest_object()
+        # Currently MFE not support pass empty str or None as pipeline input.
+        assert len(rest_obj.properties.inputs) == 4
+        assert "integer" in rest_obj.properties.inputs
+        assert "boolean" in rest_obj.properties.inputs
+        assert "number" in rest_obj.properties.inputs
+        assert "str_param" in rest_obj.properties.inputs
+
+    def test_pipeline_input_as_runsettings_value(self, client: MLClient) -> None:
+        input_types_func = load_component(source="./tests/test_configs/components/input_types_component.yml")
+
+        @dsl.pipeline(
+            default_compute="cpu-cluster",
+            description="Set pipeline input to runsettings",
+        )
+        def empty_value_pipeline(integer: int, boolean: bool, number: float, str_param: str, shm_size: str):
+            component = input_types_func(
+                component_in_string=str_param,
+                component_in_ranged_integer=integer,
+                component_in_boolean=boolean,
+                component_in_ranged_number=number,
+            )
+            component.resources = JobResourceConfiguration(
+                instance_count=integer,
+                shm_size=shm_size,
+            )
+
+        pipeline = empty_value_pipeline(integer=0, boolean=False, number=0, str_param="str_param", shm_size="20g")
+        rest_obj = pipeline._to_rest_object()
+        expect_resource = {"instance_count": "${{parent.inputs.integer}}", "shm_size": "${{parent.inputs.shm_size}}"}
+        assert rest_obj.properties.jobs["component"]["resources"] == expect_resource

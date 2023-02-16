@@ -20,7 +20,7 @@ from azure.identity.aio import DefaultAzureCredential
 
 from devtools_testutils import is_live
 
-from .testcase import TableTestCase, SLEEP_DELAY
+from .testcase import TableTestCase
 
 
 TEST_TABLE_PREFIX = "pytableasync"
@@ -42,9 +42,9 @@ class AsyncTableTestCase(TableTestCase):
     def get_token_credential(self):
         if is_live():
             return DefaultAzureCredential()
-        return self.generate_fake_token()
+        return self.generate_fake_token_credential()
 
-    def generate_fake_token(self):
+    def generate_fake_token_credential(self):
         return AsyncFakeTokenCredential()
 
     def _get_table_reference(self, prefix=TEST_TABLE_PREFIX):

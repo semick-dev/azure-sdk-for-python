@@ -26,6 +26,13 @@ if TYPE_CHECKING:
     from typing import Any, Callable, Dict, Optional, Tuple
     from pytest import FixtureRequest
 
+# In pytest-asyncio>=0.19.0 async fixtures need to be marked with pytest_asyncio.fixture, not pytest.fixture, by default
+# pytest_asyncio.fixture is only recently available (~0.17.0), so we need to account for an import error
+try:
+    from pytest_asyncio import fixture as async_fixture
+except ImportError:
+    from pytest import fixture as async_fixture
+
 
 _LOGGER = logging.getLogger()
 
@@ -115,8 +122,8 @@ def environment_variables(test_proxy: None) -> EnvironmentVariableSanitizer:
     return EnvironmentVariableSanitizer()
 
 
-@pytest.fixture
-async def recorded_test(test_proxy: None, request: "FixtureRequest") -> "Optional[Dict[str, Any]]":
+@async_fixture
+async def recorded_test(test_proxy: None, request: "FixtureRequest") -> "Dict[str, Any]":
     """Fixture that redirects network requests to target the azure-sdk-tools test proxy.
 
     Use with recorded tests. For more details and usage examples, refer to
@@ -131,7 +138,7 @@ async def recorded_test(test_proxy: None, request: "FixtureRequest") -> "Optiona
         If the current test session is live but recording is disabled, yields None.
     """
     if is_live_and_not_recording():
-        yield
+        yield {"variables": {}}  # yield an empty set of variables since recordings aren't used
     else:
         test_id, recording_id, variables = start_proxy_session()
 

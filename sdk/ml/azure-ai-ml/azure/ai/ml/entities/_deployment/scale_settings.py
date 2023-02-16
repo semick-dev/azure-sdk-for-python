@@ -6,6 +6,7 @@
 
 import logging
 from abc import abstractmethod
+from typing import Optional
 
 from azure.ai.ml._restclient.v2022_02_01_preview.models import DefaultScaleSettings as RestDefaultScaleSettings
 from azure.ai.ml._restclient.v2022_02_01_preview.models import OnlineScaleSettings as RestOnlineScaleSettings
@@ -27,7 +28,11 @@ class OnlineScaleSettings(RestTranslatableMixin):
     :type type: str
     """
 
-    def __init__(self, type: str, **kwargs):  # pylint: disable=unused-argument
+    def __init__(
+        self,
+        type: str,  # pylint: disable=redefined-builtin
+        **kwargs,  # pylint: disable=unused-argument
+    ):
         self.type = camel_to_snake(type)
 
     @abstractmethod
@@ -106,10 +111,10 @@ class TargetUtilizationScaleSettings(OnlineScaleSettings):
     def __init__(
         self,
         *,
-        min_instances: int = None,
-        max_instances: int = None,
-        polling_interval: int = None,
-        target_utilization_percentage: int = None,
+        min_instances: Optional[int] = None,
+        max_instances: Optional[int] = None,
+        polling_interval: Optional[int] = None,
+        target_utilization_percentage: Optional[int] = None,
         **kwargs,
     ):
         super(TargetUtilizationScaleSettings, self).__init__(

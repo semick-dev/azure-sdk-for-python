@@ -6,7 +6,7 @@
 
 from marshmallow import fields, post_dump, post_load, pre_load
 
-from azure.ai.ml._restclient.v2022_06_01_preview.models import (
+from azure.ai.ml._restclient.v2022_10_01_preview.models import (
     LearningRateScheduler,
     ModelSize,
     StochasticOptimizer,
@@ -14,6 +14,8 @@ from azure.ai.ml._restclient.v2022_06_01_preview.models import (
 )
 from azure.ai.ml._schema._sweep.search_space import (
     ChoiceSchema,
+    IntegerQNormalSchema,
+    IntegerQUniformSchema,
     NormalSchema,
     QNormalSchema,
     QUniformSchema,
@@ -44,7 +46,10 @@ def get_choice_schema_of_type(cls, **kwargs):
 
 
 def get_choice_and_single_value_schema_of_type(cls, **kwargs):
-    return UnionField([cls(**kwargs), NestedField(get_choice_schema_of_type(cls, **kwargs))])
+    # Reshuffling the order of fields for allowing choice of booleans.
+    # The reason is, while dumping [Bool, Choice[Bool]] is parsing even dict as True.
+    # Since all unionFields are parsed sequentially, to avoid this, we are giving the "type" field at the end.
+    return UnionField([NestedField(get_choice_schema_of_type(cls, **kwargs)), cls(**kwargs)])
 
 
 FLOAT_SEARCH_SPACE_DISTRIBUTION_FIELD = UnionField(
@@ -66,6 +71,8 @@ INT_SEARCH_SPACE_DISTRIBUTION_FIELD = UnionField(
         DumpableIntegerField(strict=True),
         NestedField(get_choice_schema_of_type(DumpableIntegerField, strict=True)),
         NestedField(RandintSchema()),
+        NestedField(IntegerQUniformSchema()),
+        NestedField(IntegerQNormalSchema()),
     ]
 )
 
@@ -146,21 +153,20 @@ class ImageModelDistributionSettingsClassificationSchema(ImageModelDistributionS
 
     @post_dump
     def conversion(self, data, **kwargs):
-        if self.context.get("inside_pipeline", False):
-            # AutoML job inside pipeline does load(dump) instead of calling to_rest_object explicitly for creating the autoRest Object from sdk job.
+        if self.context.get("inside_pipeline", False):  # pylint: disable=no-member
+            # AutoML job inside pipeline does load(dump) instead of calling to_rest_object
+            # explicitly for creating the autoRest Object from sdk job.
             # Hence for pipeline job, we explicitly convert Sweep Distribution dict to str after dump in this method.
             # For standalone automl job, same conversion happens in image_classification_job._to_rest_object()
-            from azure.ai.ml.entities._job.automl.image.image_search_space_utils import (
-                _convert_sweep_dist_dict_to_str_dict,
-            )
+            from azure.ai.ml.entities._job.automl.search_space_utils import _convert_sweep_dist_dict_to_str_dict
 
             data = _convert_sweep_dist_dict_to_str_dict(data)
         return data
 
     @pre_load
     def before_make(self, data, **kwargs):
-        if self.context.get("inside_pipeline", False):
-            from azure.ai.ml.entities._job.automl.image.image_search_space_utils import _convert_sweep_dist_str_to_dict
+        if self.context.get("inside_pipeline", False):  # pylint: disable=no-member
+            from azure.ai.ml.entities._job.automl.search_space_utils import _convert_sweep_dist_str_to_dict
 
             # Converting Sweep Distribution str to Sweep Distribution dict for complying with search_space schema.
             data = _convert_sweep_dist_str_to_dict(data)
@@ -190,22 +196,20 @@ class ImageModelDistributionSettingsDetectionCommonSchema(ImageModelDistribution
 
     @post_dump
     def conversion(self, data, **kwargs):
-        if self.context.get("inside_pipeline", False):
-            # AutoML job inside pipeline does load(dump) instead of calling to_rest_object explicitly for creating the autoRest Object
-            # from sdk job object.
+        if self.context.get("inside_pipeline", False):  # pylint: disable=no-member
+            # AutoML job inside pipeline does load(dump) instead of calling to_rest_object
+            # explicitly for creating the autoRest Object from sdk job object.
             # Hence for pipeline job, we explicitly convert Sweep Distribution dict to str after dump in this method.
             # For standalone automl job, same conversion happens in image_object_detection_job._to_rest_object()
-            from azure.ai.ml.entities._job.automl.image.image_search_space_utils import (
-                _convert_sweep_dist_dict_to_str_dict,
-            )
+            from azure.ai.ml.entities._job.automl.search_space_utils import _convert_sweep_dist_dict_to_str_dict
 
             data = _convert_sweep_dist_dict_to_str_dict(data)
         return data
 
     @pre_load
     def before_make(self, data, **kwargs):
-        if self.context.get("inside_pipeline", False):
-            from azure.ai.ml.entities._job.automl.image.image_search_space_utils import _convert_sweep_dist_str_to_dict
+        if self.context.get("inside_pipeline", False):  # pylint: disable=no-member
+            from azure.ai.ml.entities._job.automl.search_space_utils import _convert_sweep_dist_str_to_dict
 
             # Converting Sweep Distribution str to Sweep Distribution dict for complying with search_space schema.
             data = _convert_sweep_dist_str_to_dict(data)

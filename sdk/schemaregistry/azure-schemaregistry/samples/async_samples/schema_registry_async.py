@@ -30,32 +30,56 @@ from azure.identity.aio import DefaultAzureCredential
 from azure.schemaregistry.aio import SchemaRegistryClient
 from azure.schemaregistry import SchemaFormat
 
-SCHEMAREGISTRY_FQN = os.environ["SCHEMAREGISTRY_FULLY_QUALIFIED_NAMESPACE"]
+SCHEMAREGISTRY_FQN = os.environ["SCHEMAREGISTRY_JSON_FULLY_QUALIFIED_NAMESPACE"]
 GROUP_NAME = os.environ["SCHEMAREGISTRY_GROUP"]
 NAME = "your-schema-name"
-FORMAT = SchemaFormat.AVRO
-SCHEMA_JSON = {
-    "namespace": "example.avro",
-    "type": "record",
-    "name": "User",
-    "fields": [
-        {"name": "name", "type": "string"},
-        {"name": "favorite_number", "type": ["int", "null"]},
-        {"name": "favorite_color", "type": ["string", "null"]},
-    ],
+FORMAT = SchemaFormat.JSON
+
+JSON_SCHEMA = {
+    "$id": "https://example.com/person.schema.json",
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "Person",
+    "type": "object",
+    "properties": {
+        "firstName": {
+            "type": "string",
+            "description": "The person's first name."
+        },
+        "lastName": {
+            "type": "string",
+            "description": "The person's last name."
+        },
+        "age": {
+            "description": "Age in years which must be equal to or greater than zero.",
+            "type": "integer",
+            "minimum": 0
+        }
+    }
 }
-NEW_SCHEMA_JSON = {
-    "namespace": "example.avro",
-    "type": "record",
-    "name": "User2",
-    "fields": [
-        {"name": "name", "type": "string"},
-        {"name": "favorite_number", "type": ["int", "null"]},
-        {"name": "favorite_color", "type": ["string", "null"]},
-    ],
+NEW_JSON_SCHEMA = {
+    "$id": "https://example.com/person.schema.json",
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "Person2",
+    "type": "object",
+    "properties": {
+        "firstName": {
+            "type": "string",
+            "description": "The person's first name."
+        },
+        "lastName": {
+            "type": "string",
+            "description": "The person's last name."
+        },
+        "age": {
+            "description": "Age in years which must be equal to or greater than zero.",
+            "type": "integer",
+            "minimum": 0
+        }
+    }
 }
-DEFINITION = json.dumps(SCHEMA_JSON, separators=(",", ":"))
-NEW_DEFINITION = json.dumps(NEW_SCHEMA_JSON, separators=(",", ":"))
+
+DEFINITION = json.dumps(JSON_SCHEMA, separators=(",", ":"))
+NEW_DEFINITION = json.dumps(NEW_JSON_SCHEMA, separators=(",", ":"))
 
 
 async def register_schema(client, group_name, name, definition, format):
@@ -81,7 +105,7 @@ async def get_schema_by_id(client, schema_id):
 
 async def get_schema_by_version(client, group_name, name, version):
     print("Getting schema by version...")
-    schema = await client.get_schema_by_version(group_name, name, version)
+    schema = await client.get_schema(group_name=group_name, name=name, version=version)
     print(
         "The schema string of schema id: {} is {}".format(schema.properties.id, schema.definition)
     )
@@ -94,7 +118,7 @@ async def get_old_schema_by_version(client, group_name, name, new_definition):
     )
     print(f"Registered new schema of version: {updated_schema_properties.version}")
     old_version = updated_schema_properties.version - 1
-    schema = await client.get_schema_by_version(group_name, name, old_version)
+    schema = await client.get_schema(group_name=group_name, name=name, version=old_version)
     print(f"Retrieving old schema v{schema.properties.version}: {schema.definition}")
     return schema.definition
 

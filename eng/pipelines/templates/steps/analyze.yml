@@ -24,6 +24,12 @@ steps:
       ServiceDirectory: "template"
       TestPipeline: ${{ parameters.TestPipeline }}
 
+  - task: PythonScript@0
+    displayName: 'Set Tox Environment Skips'
+    inputs:
+      scriptPath: 'scripts/devops_tasks/set_tox_environment.py'
+      arguments: '--team-project="$(System.TeamProject)" --service="${{ parameters.ServiceDirectory }}"'
+
   - ${{ each artifact in parameters.Artifacts }}:
     - ${{if ne(artifact.skipVerifyChangeLog, 'true')}}:
       - template: /eng/common/pipelines/templates/steps/verify-changelog.yml
@@ -93,6 +99,11 @@ steps:
       ServiceDirectory: ${{ parameters.ServiceDirectory }}
       TestMarkArgument: ${{ parameters.TestMarkArgument }}
 
+  - template: run_pyright.yml
+    parameters:
+      ServiceDirectory: ${{ parameters.ServiceDirectory }}
+      TestMarkArgument: ${{ parameters.TestMarkArgument }}
+
   - template: run_pylint.yml
     parameters:
       ServiceDirectory: ${{ parameters.ServiceDirectory }}
@@ -113,6 +124,11 @@ steps:
     parameters:
       ServiceDirectory: ${{ parameters.ServiceDirectory }}
       TestMarkArgument: ${{ parameters.TestMarkArgument }}
+      AdditionalTestArgs: ${{parameters.AdditionalTestArgs}}
+
+  - template: /eng/pipelines/templates/steps/update_snippet.yml
+    parameters:
+      ScanPath: $(Build.SourcesDirectory)/sdk/${{ parameters.ServiceDirectory }}
       AdditionalTestArgs: ${{parameters.AdditionalTestArgs}}
 
   - template: ../steps/run_breaking_changes.yml

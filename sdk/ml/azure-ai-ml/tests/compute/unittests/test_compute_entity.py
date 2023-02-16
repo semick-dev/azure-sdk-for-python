@@ -6,19 +6,21 @@ from msrest import Serializer
 from test_utilities.utils import verify_entity_load_and_dump
 
 from azure.ai.ml import load_compute
-from azure.ai.ml._restclient.v2021_10_01.models import ComputeResource
+from azure.ai.ml._restclient.v2022_10_01_preview.models import ComputeResource, ImageMetadata
+from azure.ai.ml.constants._compute import CustomApplicationDefaults
 from azure.ai.ml.entities import (
     AmlCompute,
     Compute,
     ComputeInstance,
     KubernetesCompute,
+    ManagedIdentityConfiguration,
     SynapseSparkCompute,
-    UserAssignedIdentity,
     VirtualMachineCompute,
 )
 
 
 @pytest.mark.unittest
+@pytest.mark.core_sdk_test
 class TestComputeEntity:
     def test_compute_from_rest(self):
         with open("tests/test_configs/compute/compute-kubernetes.yaml", "r") as f:
@@ -54,13 +56,19 @@ class TestComputeEntity:
 
     def test_compute_from_yaml(self):
         compute: AmlCompute = verify_entity_load_and_dump(
-            load_compute, self._test_loaded_compute, "tests/test_configs/compute/compute-aml.yaml"
+            load_compute,
+            self._test_loaded_compute,
+            "tests/test_configs/compute/compute-aml.yaml",
         )[0]
+        assert compute.location == "eastus"
 
         rest_intermediate = compute._to_rest_object()
         assert rest_intermediate.properties.compute_type == "AmlCompute"
         assert rest_intermediate.properties.properties.user_account_credentials.admin_user_name == "azureuser"
         assert rest_intermediate.properties.properties.enable_node_public_ip
+        assert rest_intermediate.location == compute.location
+        assert rest_intermediate.tags is not None
+        assert rest_intermediate.tags["test"] == "true"
 
         serializer = Serializer({"ComputeResource": ComputeResource})
         body = serializer.body(rest_intermediate, "ComputeResource")
@@ -68,6 +76,7 @@ class TestComputeEntity:
         assert body["identity"]["userAssignedIdentities"] == self._uai_list_to_dict(
             compute.identity.user_assigned_identities
         )
+        assert body["location"] == compute.location
 
     def test_compute_vm_from_yaml(self):
         resource_id = "/subscriptions/13e50845-67bc-4ac5-94db-48d493a6d9e8/resourceGroups/myrg/providers/Microsoft.Compute/virtualMachines/myvm"
@@ -103,7 +112,7 @@ class TestComputeEntity:
         compute._to_dict()
         assert compute.type == "kubernetes"
 
-    def _uai_list_to_dict(self, value: List[UserAssignedIdentity]) -> Union[str, UserAssignedIdentity]:
+    def _uai_list_to_dict(self, value: List[ManagedIdentityConfiguration]) -> Union[str, ManagedIdentityConfiguration]:
         uai_dict = {}
 
         for item in value:
@@ -112,17 +121,41 @@ class TestComputeEntity:
         return uai_dict
 
     def test_compute_instance_load_from_rest(self):
-        compute_instance: ComputeInstance = load_compute("tests/test_configs/compute/compute-ci-unit.yaml")
+        compute_instance: ComputeInstance = load_compute(
+            source="tests/test_configs/compute/compute-ci-unit.yaml",
+            params_override=[{"tags.test1": "test"}, {"tags.test2": "true"}, {"tags.test3": "0"}],
+        )
+
         compute_instance._set_full_subnet_name("subscription_id", "resource_group_name")
         compute_resource = compute_instance._to_rest_object()
+
         compute_instance2: ComputeInstance = ComputeInstance._load_from_rest(compute_resource)
-        assert compute_instance.last_operation == compute_instance2.last_operation
-        assert compute_instance.services == compute_instance2.services
+        assert compute_instance2.last_operation == compute_instance.last_operation
+        assert compute_instance2.services == compute_instance.services
+        assert compute_instance2.tags is not None
+        assert compute_instance2.tags["test1"] == "test"
+        assert compute_instance2.tags["test2"] == "true"
+        assert compute_instance2.tags["test3"] == "0"
+
+    def test_compute_instance_with_image_metadata(self):
+        os_image_metadata = ImageMetadata(
+            current_image_version="22.08.19",
+            latest_image_version="22.08.20",
+            is_latest_os_image_version=False,
+        )
+        compute_instance: ComputeInstance = load_compute("tests/test_configs/compute/compute-ci-unit.yaml")
+        compute_resource = compute_instance._to_rest_object()
+        compute_resource.properties.properties.os_image_metadata = os_image_metadata
+        compute_instance2: ComputeInstance = ComputeInstance._load_from_rest(compute_resource)
+        os_image_metadata2 = compute_instance2.os_image_metadata
+        assert os_image_metadata2 is not None
+        assert os_image_metadata2.current_image_version == os_image_metadata.current_image_version
+        assert os_image_metadata2.latest_image_version == os_image_metadata.latest_image_version
+        assert os_image_metadata2.is_latest_os_image_version == os_image_metadata.is_latest_os_image_version
 
     def test_compute_instance_schedules_from_yaml(self):
         compute_instance: ComputeInstance = load_compute("tests/test_configs/compute/compute-ci-schedules.yaml")
         assert len(compute_instance.schedules.compute_start_stop) == 2
-        assert compute_instance.idle_time_before_shutdown == "PT15M"
 
         compute_resource = compute_instance._to_rest_object()
         compute_instance2: ComputeInstance = ComputeInstance._load_from_rest(compute_resource)
@@ -139,6 +172,21 @@ class TestComputeEntity:
         assert compute_instance2.schedules.compute_start_stop[1].trigger.frequency == "week"
         assert compute_instance2.schedules.compute_start_stop[1].trigger.interval == 1
         assert compute_instance2.schedules.compute_start_stop[1].trigger.schedule is not None
+
+    def test_compute_instance_idle_shutdown_from_yaml(self):
+        compute_instance: ComputeInstance = load_compute("tests/test_configs/compute/compute-ci-idle-shutdown.yaml")
+        assert compute_instance.idle_time_before_shutdown == "PT20M"
+        assert compute_instance.idle_time_before_shutdown_minutes == 15
+
+        compute_resource = compute_instance._to_rest_object()
+        assert (
+            compute_resource.properties.properties.idle_time_before_shutdown
+            == f"PT{compute_instance.idle_time_before_shutdown_minutes}M"
+        )
+
+        compute_instance2: ComputeInstance = ComputeInstance._load_from_rest(compute_resource)
+        assert compute_instance2.idle_time_before_shutdown == f"PT{compute_instance.idle_time_before_shutdown_minutes}M"
+        assert compute_instance2.idle_time_before_shutdown_minutes == compute_instance.idle_time_before_shutdown_minutes
 
     def test_compute_instance_setup_scripts_from_yaml(self):
         loaded_instance: ComputeInstance = load_compute("tests/test_configs/compute/compute-ci-setup-scripts.yaml")
@@ -200,6 +248,67 @@ class TestComputeEntity:
         compute_from_rest = Compute._from_rest_object(compute_resource)
         assert compute_from_rest.type == "computeinstance"
         assert compute_from_rest.identity.type == "system_assigned"
+
+    def test_compute_no_public_ip_from_yaml(self):
+        compute_instance: ComputeInstance = load_compute("tests/test_configs/compute/compute-ci-no-public-ip.yaml")
+
+        aml_compute: AmlCompute = load_compute("tests/test_configs/compute/compute-aml-no-public-ip.yaml")
+
+        def validate_no_public_ip(compute: Compute):
+            assert compute.enable_node_public_ip == False
+            compute_resource = compute._to_rest_object()
+            assert compute_resource.properties.properties.enable_node_public_ip == False
+            compute_from_rest = Compute._from_rest_object(compute_resource)
+            assert compute_from_rest.enable_node_public_ip == False
+
+        validate_no_public_ip(compute=compute_instance)
+        validate_no_public_ip(compute=aml_compute)
+
+    def test_compute_instance_with_custom_app(self):
+        compute_instance: ComputeInstance = load_compute("tests/test_configs/compute/compute-ci-custom-app.yaml")
+        assert compute_instance.custom_applications is not None
+        assert len(compute_instance.custom_applications) == 2
+
+        custom_app = compute_instance.custom_applications[0]
+        assert custom_app.name == "rstudio-workbench"
+        assert custom_app.type == CustomApplicationDefaults.DOCKER
+        assert custom_app.image is not None
+        assert custom_app.image.reference == "ghcr.io/azure/rstudio-workbench:latest"
+        assert custom_app.endpoints is not None
+        assert custom_app.endpoints[0].target == 8787
+        assert custom_app.endpoints[0].published == 8788
+        assert custom_app.environment_variables is not None
+        assert custom_app.environment_variables["RSP_LICENSE"] == "XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX"
+        assert custom_app.bind_mounts is not None
+        assert custom_app.bind_mounts[0].target == "/home/azureuser"
+        assert custom_app.bind_mounts[0].source == "/home/azureuser"
+
+        custom_app = compute_instance.custom_applications[1]
+        assert custom_app.name == "rstudio-workbench2"
+        assert custom_app.endpoints[0].published == 8789
+        assert custom_app.environment_variables["RSP_LICENSE"] == "XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-YYYY"
+
+        compute_rest_obj = compute_instance._to_rest_object()
+        compute_instance2 = ComputeInstance._from_rest_object(compute_rest_obj)
+        assert len(compute_instance2.custom_applications) == 2
+
+        custom_app3 = compute_instance2.custom_applications[0]
+        assert custom_app3.name == "rstudio-workbench"
+        assert custom_app3.image is not None
+        assert custom_app3.image.reference == "ghcr.io/azure/rstudio-workbench:latest"
+        assert custom_app3.endpoints is not None
+        assert custom_app3.endpoints[0].target == 8787
+        assert custom_app3.endpoints[0].published == 8788
+        assert custom_app3.environment_variables is not None
+        assert custom_app3.environment_variables["RSP_LICENSE"] == "XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX"
+        assert custom_app3.bind_mounts is not None
+        assert custom_app3.bind_mounts[0].target == "/home/azureuser"
+        assert custom_app3.bind_mounts[0].source == "/home/azureuser"
+
+        custom_app4 = compute_instance2.custom_applications[1]
+        assert custom_app4.name == "rstudio-workbench2"
+        assert custom_app4.endpoints[0].published == 8789
+        assert custom_app4.environment_variables["RSP_LICENSE"] == "XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-YYYY"
 
     def test_synapse_compute_from_rest(self):
         with open("tests/test_configs/compute/compute-synapsespark.yaml", "r") as f:

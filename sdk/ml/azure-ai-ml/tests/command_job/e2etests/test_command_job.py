@@ -1,23 +1,22 @@
-import time
 from pathlib import Path
-from time import sleep
 from typing import Callable
 
-from devtools_testutils import AzureRecordedTestCase, is_live, set_bodiless_matcher
 import jwt
 import pytest
+from devtools_testutils import AzureRecordedTestCase, is_live
+from test_utilities.utils import sleep_if_live, wait_until_done
 
-from azure.ai.ml import AmlToken, Input, MLClient, command, load_environment, load_job
+from azure.ai.ml import Input, MLClient, command, load_environment, load_job
 from azure.ai.ml._azure_environments import _get_base_url_from_metadata, _resource_to_scopes
-from azure.ai.ml._restclient.v2022_06_01_preview.models import ListViewType
+from azure.ai.ml._restclient.v2022_10_01_preview.models import ListViewType
 from azure.ai.ml._utils._arm_id_utils import AMLVersionedArmId
 from azure.ai.ml.constants._common import COMMON_RUNTIME_ENV_VAR, LOCAL_COMPUTE_TARGET, TID_FMT, AssetTypes
+from azure.ai.ml.entities import AmlTokenConfiguration
 from azure.ai.ml.entities._assets._artifacts.data import Data
 from azure.ai.ml.entities._job.command_job import CommandJob
 from azure.ai.ml.entities._job.distribution import MpiDistribution
 from azure.ai.ml.entities._job.job import Job
 from azure.ai.ml.exceptions import ValidationException
-from azure.ai.ml.operations._job_ops_helper import _wait_before_polling
 from azure.ai.ml.operations._run_history_constants import JobStatus, RunHistoryConstants
 from azure.core.polling import LROPoller
 
@@ -26,10 +25,7 @@ from azure.core.polling import LROPoller
 # here and in the script.
 TEST_PARAMS = {"a_param": "1", "another_param": "2"}
 
-
-@pytest.mark.fixture(autouse=True)
-def bodiless_matching(test_proxy):
-    set_bodiless_matcher()
+# previous bodiless_matcher fixture doesn't take effect because of typo, please add it in method level if needed
 
 
 @pytest.mark.timeout(600)
@@ -39,6 +35,7 @@ def bodiless_matching(test_proxy):
     "mock_asset_name",
     "enable_environment_id_arm_expansion",
 )
+@pytest.mark.training_experiences_test
 class TestCommandJob(AzureRecordedTestCase):
     @pytest.mark.skip(
         "Investigate The network connectivity issue encountered for 'Microsoft.MachineLearningServices'; cannot fulfill the request."
@@ -78,7 +75,7 @@ class TestCommandJob(AzureRecordedTestCase):
         command_job_2 = client.jobs.get(job_name)
         assert command_job.name == command_job_2.name
         assert command_job.identity.type == command_job_2.identity.type
-        assert command_job_2.environment == "AzureML-sklearn-0.24-ubuntu18.04-py37-cpu:1"
+        assert command_job_2.environment == "azureml:AzureML-sklearn-0.24-ubuntu18.04-py37-cpu:1"
         assert command_job_2.compute == "cpu-cluster"
         check_tid_in_url(client, command_job_2)
 
@@ -95,14 +92,14 @@ class TestCommandJob(AzureRecordedTestCase):
         command_job: CommandJob = client.jobs.create_or_update(job=job)
 
         assert command_job.status in RunHistoryConstants.IN_PROGRESS_STATUSES
-        assert command_job.environment == "AzureML-sklearn-0.24-ubuntu18.04-py37-cpu:1"
+        assert command_job.environment == "azureml:AzureML-sklearn-0.24-ubuntu18.04-py37-cpu:1"
         assert command_job.compute == "testCompute"
         check_tid_in_url(client, command_job)
 
         command_job_2 = client.jobs.get(job_name)
         assert command_job.name == command_job_2.name
         assert command_job.identity.type == command_job_2.identity.type
-        assert command_job_2.environment == "AzureML-sklearn-0.24-ubuntu18.04-py37-cpu:1"
+        assert command_job_2.environment == "azureml:AzureML-sklearn-0.24-ubuntu18.04-py37-cpu:1"
         assert command_job_2.compute == "testCompute"
         check_tid_in_url(client, command_job_2)
 
@@ -119,17 +116,18 @@ class TestCommandJob(AzureRecordedTestCase):
         command_job: CommandJob = client.jobs.create_or_update(job=job)
 
         assert command_job.status in RunHistoryConstants.IN_PROGRESS_STATUSES
-        assert command_job.environment == "AzureML-sklearn-0.24-ubuntu18.04-py37-cpu:1"
+        assert command_job.environment == "azureml:AzureML-sklearn-0.24-ubuntu18.04-py37-cpu:1"
         assert command_job.compute == "testCompute"
         check_tid_in_url(client, command_job)
 
         command_job_2 = client.jobs.get(job_name)
         assert command_job.name == command_job_2.name
         assert command_job.identity.type == command_job_2.identity.type
-        assert command_job_2.environment == "AzureML-sklearn-0.24-ubuntu18.04-py37-cpu:1"
+        assert command_job_2.environment == "azureml:AzureML-sklearn-0.24-ubuntu18.04-py37-cpu:1"
         assert command_job_2.compute == "testCompute"
         check_tid_in_url(client, command_job_2)
 
+    @pytest.mark.skip("https://dev.azure.com/msdata/Vienna/_workitems/edit/2009659")
     @pytest.mark.e2etest
     def test_command_job_builder(self, data_with_2_versions: str, client: MLClient) -> None:
 
@@ -150,7 +148,7 @@ class TestCommandJob(AzureRecordedTestCase):
             display_name="builder_command_job",
             compute="testCompute",
             experiment_name="mfe-test1-dataset",
-            identity=AmlToken(),
+            identity=AmlTokenConfiguration(),
             distribution=MpiDistribution(process_count_per_instance=2),
         )
 
@@ -158,7 +156,7 @@ class TestCommandJob(AzureRecordedTestCase):
         assert node.display_name == "builder_command_job"
         assert node.compute == "testCompute"
         assert node.experiment_name == "mfe-test1-dataset"
-        assert node.identity == AmlToken()
+        assert node.identity == AmlTokenConfiguration()
 
         node.description = "new-description"
         node.display_name = "new_builder_command_job"
@@ -169,11 +167,11 @@ class TestCommandJob(AzureRecordedTestCase):
 
         result = client.create_or_update(node)
         assert result.description == "new-description"
-        assert result.environment == "AzureML-sklearn-0.24-ubuntu18.04-py37-cpu:1"
+        assert result.environment == "azureml:AzureML-sklearn-0.24-ubuntu18.04-py37-cpu:1"
         assert result.display_name == "new_builder_command_job"
         assert result.compute == "testCompute"
         assert result.experiment_name == "mfe-test1-dataset"
-        assert result.identity == AmlToken()
+        assert result.identity == AmlTokenConfiguration()
         assert isinstance(result.distribution, MpiDistribution)
         assert result.distribution.process_count_per_instance == 2
 
@@ -201,7 +199,7 @@ class TestCommandJob(AzureRecordedTestCase):
         )
         command_job: CommandJob = client.jobs.create_or_update(job=job)
         assert command_job.name == job_name
-        assert command_job.environment == "AzureML-sklearn-0.24-ubuntu18.04-py37-cpu:1"
+        assert command_job.environment == "azureml:AzureML-sklearn-0.24-ubuntu18.04-py37-cpu:1"
         assert command_job.compute == "local"
         assert command_job.environment_variables[COMMON_RUNTIME_ENV_VAR] == "true"
 
@@ -221,6 +219,7 @@ class TestCommandJob(AzureRecordedTestCase):
         client.jobs.stream(job_name)
         assert client.jobs.get(job_name).parameters
 
+    @pytest.mark.skip("https://dev.azure.com/msdata/Vienna/_workitems/edit/2009659")
     @pytest.mark.e2etest
     def test_command_job_with_modified_environment(self, randstr: Callable[[], str], client: MLClient) -> None:
         job_name = randstr("job_name")
@@ -235,9 +234,9 @@ class TestCommandJob(AzureRecordedTestCase):
         job.environment = "AzureML-sklearn-0.24-ubuntu18.04-py37-cpu:1"
 
         job = client.jobs.create_or_update(job=job)
-        assert job.environment == "AzureML-sklearn-0.24-ubuntu18.04-py37-cpu:1"
+        assert job.environment == "azureml:AzureML-sklearn-0.24-ubuntu18.04-py37-cpu:1"
         job = client.jobs.get(name=job.name)
-        assert job.environment == "AzureML-sklearn-0.24-ubuntu18.04-py37-cpu:1"
+        assert job.environment == "azureml:AzureML-sklearn-0.24-ubuntu18.04-py37-cpu:1"
 
     @pytest.mark.e2etest
     @pytest.mark.skip("Investigate why cancel does not record some upload requests of code assets")
@@ -326,7 +325,7 @@ class TestCommandJob(AzureRecordedTestCase):
 
         def get_job_list():
             # Wait for list index to update before calling list command
-            sleep(30)
+            sleep_if_live(30)
             job_list = client.jobs.list(list_view_type=ListViewType.ACTIVE_ONLY)
             return [j.name for j in job_list if j is not None]
 
@@ -341,19 +340,13 @@ class TestCommandJob(AzureRecordedTestCase):
     def test_command_job_download(self, tmp_path: Path, randstr: Callable[[], str], client: MLClient) -> None:
         client: MLClient = client
 
-        def wait_until_done(job: Job) -> None:
-            poll_start_time = time.time()
-            while job.status not in RunHistoryConstants.TERMINAL_STATUSES:
-                time.sleep(_wait_before_polling(time.time() - poll_start_time))
-                job = client.jobs.get(job.name)
-
         job = client.jobs.create_or_update(
             load_job(
                 source="./tests/test_configs/command_job/command_job_quick_with_output.yml",
                 params_override=[{"name": randstr("name")}],
             )
         )
-        wait_until_done(job)
+        wait_until_done(client=client, job=job)
 
         client.jobs.download(name=job.name, download_path=tmp_path, all=True)
 
@@ -370,12 +363,6 @@ class TestCommandJob(AzureRecordedTestCase):
     def test_command_job_local_run_download(self, tmp_path: Path, randstr: Callable[[], str], client: MLClient) -> None:
         client: MLClient = client
 
-        def wait_until_done(job: Job) -> None:
-            poll_start_time = time.time()
-            while job.status not in RunHistoryConstants.TERMINAL_STATUSES:
-                time.sleep(_wait_before_polling(time.time() - poll_start_time))
-                job = client.jobs.get(job.name)
-
         job = client.jobs.create_or_update(
             load_job(
                 source="./tests/test_configs/command_job/command_job_quick_with_output.yml",
@@ -383,7 +370,7 @@ class TestCommandJob(AzureRecordedTestCase):
             )
         )
 
-        wait_until_done(job)
+        wait_until_done(client=client, job=job)
 
         client.jobs.download(name=job.name, download_path=tmp_path, all=True)
 
@@ -431,6 +418,18 @@ class TestCommandJob(AzureRecordedTestCase):
                 params_override=params_override,
             )
         assert "Error while parsing yaml file" in e.value.message
+
+    @pytest.mark.e2etest
+    def test_command_job_register_output(self, randstr: Callable[[str], str], client: MLClient) -> None:
+        job: CommandJob = load_job(
+            source="./tests/test_configs/command_job/command_job_register_output.yml",
+            params_override=[{"name": randstr("job_name")}],
+        )
+        job = client.jobs.create_or_update(job=job)
+        assert job.outputs.test2.name == "test2_output"
+        assert job.outputs.test2.version == "2"
+        assert job.outputs.test3.name == "test3_output"
+        assert job.outputs.test3.version == "3"
 
 
 def check_tid_in_url(client: MLClient, job: Job) -> None:

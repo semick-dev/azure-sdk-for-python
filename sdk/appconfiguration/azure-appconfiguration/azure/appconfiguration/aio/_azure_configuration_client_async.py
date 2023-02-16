@@ -4,21 +4,17 @@
 # license information.
 # -------------------------------------------------------------------------
 import binascii
-from typing import Dict, Any, Optional, Mapping, Union, TYPE_CHECKING
+from typing import Any, Optional, Mapping, Union
 from requests.structures import CaseInsensitiveDict
 from azure.core import MatchConditions
 from azure.core.async_paging import AsyncItemPaged
-from azure.core.pipeline import AsyncPipeline
 from azure.core.pipeline.policies import (
     UserAgentPolicy,
-    DistributedTracingPolicy,
-    HttpLoggingPolicy,
     AsyncBearerTokenCredentialPolicy,
-    ContentDecodePolicy,
 )
 from azure.core.tracing.decorator import distributed_trace
 from azure.core.tracing.decorator_async import distributed_trace_async
-from azure.core.pipeline.transport import AsyncioRequestsTransport
+from azure.core.credentials_async import AsyncTokenCredential
 from azure.core.exceptions import (
     HttpResponseError,
     ClientAuthenticationError,
@@ -34,24 +30,23 @@ from .._utils import (
     prep_if_none_match,
 )
 from .._generated.aio import AzureAppConfiguration
-from .._generated.aio._configuration import AzureAppConfigurationConfiguration
 from .._azure_appconfiguration_requests import AppConfigRequestsCredentialsPolicy
 from .._azure_appconfiguration_credential import AppConfigConnectionStringCredential
 from .._models import ConfigurationSetting
 from .._user_agent import USER_AGENT
 from ._sync_token_async import AsyncSyncTokenPolicy
 
-if TYPE_CHECKING:
-    from azure.core.credentials_async import AsyncTokenCredential
 
-
-class AzureAppConfigurationClient: # pylint: disable=client-accepts-api-version-keyword
-    # pylint:disable=line-too-long
+class AzureAppConfigurationClient:
     """Represents a client that calls restful API of Azure App Configuration service.
 
-        :param str base_url: base url of the service
+        :param str base_url: Base url of the service.
         :param credential: An object which can provide secrets for the app configuration service
-        :type credential: :class:`azure.appconfiguration.AppConfigConnectionStringCredential` or :class:`~azure.core.credentials_async.AsyncTokenCredential`
+        :type credential: :class:`azure.appconfiguration.AppConfigConnectionStringCredential`
+            or :class:`~azure.core.credentials_async.AsyncTokenCredential`
+        :keyword api_version: Api Version. Default value is "1.0". Note that overriding this default
+            value may result in unsupported behavior.
+        :paramtype api_version: str
 
     This is the async version of :class:`azure.appconfiguration.AzureAppConfigurationClient`
 
@@ -59,12 +54,7 @@ class AzureAppConfigurationClient: # pylint: disable=client-accepts-api-version-
 
     # pylint:disable=protected-access
 
-    def __init__(
-        self,
-        base_url: str,
-        credential: Union[AppConfigConnectionStringCredential, "AsyncTokenCredential"],
-        **kwargs: Any
-    ) -> None:
+    def __init__(self, base_url: str, credential: AsyncTokenCredential, **kwargs) -> None:
         try:
             if not base_url.lower().startswith("http"):
                 base_url = "https://" + base_url
@@ -74,30 +64,38 @@ class AzureAppConfigurationClient: # pylint: disable=client-accepts-api-version-
         if not credential:
             raise ValueError("Missing credential")
 
-        self._credential_scopes = base_url.strip("/") + "/.default"
+        credential_scopes = base_url.strip("/") + "/.default"
 
-        self._config = AzureAppConfigurationConfiguration(
-            base_url, credential_scopes=self._credential_scopes, **kwargs
-        )
-        self._config.user_agent_policy = UserAgentPolicy(
-            base_user_agent=USER_AGENT, **kwargs
-        )
+        user_agent_policy = UserAgentPolicy(base_user_agent=USER_AGENT, **kwargs)
 
-        pipeline = kwargs.get("pipeline")
         self._sync_token_policy = AsyncSyncTokenPolicy()
 
-        if pipeline is None:
-            aad_mode = not isinstance(credential, AppConfigConnectionStringCredential)
-            pipeline = self._create_appconfig_pipeline(
-                credential=credential, aad_mode=aad_mode, base_url=base_url, **kwargs
-            )
+        aad_mode = not isinstance(credential, AppConfigConnectionStringCredential)
+        if aad_mode:
+            if hasattr(credential, "get_token"):
+                credential_policy = AsyncBearerTokenCredentialPolicy(
+                    credential, # type: ignore
+                    credential_scopes,
+                )
+            else:
+                raise TypeError(
+                    "Please provide an instance from azure-identity "
+                    "or a class that implement the 'get_token protocol"
+                )
+        else:
+            credential_policy = AppConfigRequestsCredentialsPolicy(credential) # type: ignore
 
         self._impl = AzureAppConfiguration(
-            base_url, credential_scopes=self._credential_scopes, pipeline=pipeline
+            base_url,
+            credential_scopes=credential_scopes,
+            authentication_policy=credential_policy,
+            user_agent_policy=user_agent_policy,
+            per_call_policies=self._sync_token_policy,
+            **kwargs
         )
 
     @classmethod
-    def from_connection_string(cls, connection_string: str, **kwargs: Any) -> "AzureAppConfigurationClient":
+    def from_connection_string(cls, connection_string: str, **kwargs) -> "AzureAppConfigurationClient":
         """Create AzureAppConfigurationClient from a Connection String.
         This is the async version of :class:`azure.appconfiguration.AzureAppConfigurationClient`
 
@@ -117,58 +115,14 @@ class AzureAppConfigurationClient: # pylint: disable=client-accepts-api-version-
         """
         base_url = "https://" + get_endpoint_from_connection_string(connection_string)
         return cls(
-            credential=AppConfigConnectionStringCredential(connection_string),
+            credential=AppConfigConnectionStringCredential(connection_string), # type: ignore
             base_url=base_url,
             **kwargs
         )
 
-    def _create_appconfig_pipeline(
-        self, credential, base_url=None, aad_mode=False, **kwargs
-    ):
-        transport = kwargs.get("transport")
-        policies = kwargs.get("policies")
-
-        if policies is None:  # [] is a valid policy list
-            if aad_mode:
-                scope = base_url.strip("/") + "/.default"
-                if hasattr(credential, "get_token"):
-                    credential_policy = AsyncBearerTokenCredentialPolicy(
-                        credential, scope
-                    )
-                else:
-                    raise TypeError(
-                        "Please provide an instance from azure-identity "
-                        "or a class that implement the 'get_token protocol"
-                    )
-            else:
-                credential_policy = AppConfigRequestsCredentialsPolicy(credential)
-
-            policies = [
-                self._config.headers_policy,
-                self._config.user_agent_policy,
-                self._config.retry_policy,
-                self._sync_token_policy,
-                credential_policy,
-                self._config.logging_policy,  # HTTP request/response log
-                DistributedTracingPolicy(**kwargs),
-                HttpLoggingPolicy(**kwargs),
-                ContentDecodePolicy(**kwargs),
-            ]
-
-        if not transport:
-            transport = AsyncioRequestsTransport(**kwargs)
-
-        return AsyncPipeline(
-            transport,
-            policies,
-        )
-
     @distributed_trace
     def list_configuration_settings(
-        self,
-        key_filter: Optional[str] = None,
-        label_filter: Optional[str] = None,
-        **kwargs: Any
+        self, key_filter: Optional[str] = None, label_filter: Optional[str] = None, **kwargs
     ) -> AsyncItemPaged[ConfigurationSetting]:
 
         """List the configuration settings stored in the configuration service, optionally filtered by
@@ -181,7 +135,7 @@ class AzureAppConfigurationClient: # pylint: disable=client-accepts-api-version-
          used as wildcard in the beginning or end of the filter
         :type label_filter: str
         :keyword datetime accept_datetime: filter out ConfigurationSetting created after this datetime
-        :keyword list[str] fields: specify which fields to include in the results. Leave None to include all fields
+        :keyword List[str] fields: specify which fields to include in the results. Leave None to include all fields
         :return: An iterator of :class:`ConfigurationSetting`
         :rtype: ~azure.core.async_paging.AsyncItemPaged[ConfigurationSetting]
         :raises: :class:`HttpResponseError`, :class:`ClientAuthenticationError`
@@ -233,7 +187,7 @@ class AzureAppConfigurationClient: # pylint: disable=client-accepts-api-version-
         label: Optional[str] = None,
         etag: Optional[str] = "*",
         match_condition: Optional[MatchConditions] = MatchConditions.Unconditionally,
-        **kwargs: Any
+        **kwargs
     ) -> Union[None, ConfigurationSetting]:
 
         """Get the matched ConfigurationSetting from Azure App Configuration service
@@ -293,7 +247,7 @@ class AzureAppConfigurationClient: # pylint: disable=client-accepts-api-version-
     async def add_configuration_setting(
         self,
         configuration_setting: ConfigurationSetting,
-        **kwargs: Any
+        **kwargs
     ) -> ConfigurationSetting:
 
         """Add a ConfigurationSetting instance into the Azure App Configuration service.
@@ -308,7 +262,7 @@ class AzureAppConfigurationClient: # pylint: disable=client-accepts-api-version-
 
         .. code-block:: python
 
-            # in async fuction
+            # in async function
             config_setting = ConfigurationSetting(
                 key="MyKey",
                 label="MyLabel",
@@ -343,7 +297,7 @@ class AzureAppConfigurationClient: # pylint: disable=client-accepts-api-version-
         self,
         configuration_setting: ConfigurationSetting,
         match_condition: MatchConditions = MatchConditions.Unconditionally,
-        **kwargs: Any
+        **kwargs
     ) -> ConfigurationSetting:
 
         """Add or update a ConfigurationSetting.
@@ -414,7 +368,7 @@ class AzureAppConfigurationClient: # pylint: disable=client-accepts-api-version-
         self,
         key: str,
         label: Optional[str] = None,
-        **kwargs: Any
+        **kwargs
     ) -> ConfigurationSetting:
         """Delete a ConfigurationSetting if it exists
 
@@ -470,7 +424,7 @@ class AzureAppConfigurationClient: # pylint: disable=client-accepts-api-version-
 
     @distributed_trace
     def list_revisions(
-        self, key_filter: Optional[str] = None, label_filter: Optional[str] = None, **kwargs: Any
+        self, key_filter: Optional[str] = None, label_filter: Optional[str] = None, **kwargs
     ) -> AsyncItemPaged[ConfigurationSetting]:
 
         """
@@ -483,7 +437,7 @@ class AzureAppConfigurationClient: # pylint: disable=client-accepts-api-version-
          used as wildcard in the beginning or end of the filter
         :type label_filter: str
         :keyword datetime accept_datetime: filter out ConfigurationSetting created after this datetime
-        :keyword list[str] fields: specify which fields to include in the results. Leave None to include all fields
+        :keyword List[str] fields: specify which fields to include in the results. Leave None to include all fields
         :return: An iterator of :class:`ConfigurationSetting`
         :rtype: ~azure.core.async_paging.AsyncItemPaged[ConfigurationSetting]
         :raises: :class:`HttpResponseError`, :class:`ClientAuthenticationError`
@@ -531,7 +485,7 @@ class AzureAppConfigurationClient: # pylint: disable=client-accepts-api-version-
 
     @distributed_trace
     async def set_read_only(
-        self, configuration_setting: ConfigurationSetting, read_only: Optional[bool] = True, **kwargs: Any
+        self, configuration_setting: ConfigurationSetting, read_only: bool = True, **kwargs
     ) -> ConfigurationSetting:
 
         """Set a configuration setting read only

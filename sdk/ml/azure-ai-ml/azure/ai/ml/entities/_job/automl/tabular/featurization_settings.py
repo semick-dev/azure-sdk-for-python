@@ -5,11 +5,11 @@
 # pylint: disable=protected-access
 
 import logging
-from typing import Dict, List, Union
+from typing import Dict, List, Optional, Union
 
-from azure.ai.ml._restclient.v2022_06_01_preview.models import BlockedTransformers
-from azure.ai.ml._restclient.v2022_06_01_preview.models import ColumnTransformer as RestColumnTransformer
-from azure.ai.ml._restclient.v2022_06_01_preview.models import (
+from azure.ai.ml._restclient.v2022_10_01_preview.models import BlockedTransformers
+from azure.ai.ml._restclient.v2022_10_01_preview.models import ColumnTransformer as RestColumnTransformer
+from azure.ai.ml._restclient.v2022_10_01_preview.models import (
     TableVerticalFeaturizationSettings as RestTabularFeaturizationSettings,
 )
 from azure.ai.ml._utils.utils import camel_to_snake
@@ -32,8 +32,8 @@ class ColumnTransformer(RestTranslatableMixin):
     def __init__(
         self,
         *,
-        fields: List[str] = None,
-        parameters: Dict[str, Union[str, float]] = None,
+        fields: Optional[List[str]] = None,
+        parameters: Optional[Dict[str, Union[str, float]]] = None,
     ):
         self.fields = fields
         self.parameters = parameters
@@ -63,16 +63,16 @@ class TabularFeaturizationSettings(FeaturizationSettings):
     def __init__(
         self,
         *,
-        blocked_transformers: List[str] = None,
-        column_name_and_types: Dict[str, str] = None,
-        dataset_language: str = None,
-        transformer_params: Dict[str, List[ColumnTransformer]] = None,
-        mode: str = None,
-        enable_dnn_featurization: bool = None,
+        blocked_transformers: Optional[List[Union[BlockedTransformers, str]]] = None,
+        column_name_and_types: Optional[Dict[str, str]] = None,
+        dataset_language: Optional[str] = None,
+        transformer_params: Optional[Dict[str, List[ColumnTransformer]]] = None,
+        mode: Optional[str] = None,
+        enable_dnn_featurization: Optional[bool] = None,
     ):
         """
         :param blocked_transformers: A list of transformers to ignore when featurizing.
-        :type blocked_transformers: List[str]
+        :type blocked_transformers: List[Union[BlockedTransformers, str]]
         :param column_name_and_types: A dictionary of column names and feature types used to update column purpose.
         :type column_name_and_types: Dict[str, str]
         :param dataset_language: The language of the dataset.
@@ -102,17 +102,18 @@ class TabularFeaturizationSettings(FeaturizationSettings):
     @transformer_params.setter
     def transformer_params(self, value: Dict[str, List[ColumnTransformer]]) -> None:
         self._transformer_params = (
-            None if not value
-            else {(AutoMLTransformerParameterKeys[camel_to_snake(k).upper()].value) : v for k, v in value.items()}
+            None
+            if not value
+            else {(AutoMLTransformerParameterKeys[camel_to_snake(k).upper()].value): v for k, v in value.items()}
         )
 
     @property
-    def blocked_transformers(self) -> List[BlockedTransformers]:
-        """ A list of transformers to ignore when featurizing."""
+    def blocked_transformers(self) -> List[Union[BlockedTransformers, str]]:
+        """A list of transformers to ignore when featurizing."""
         return self._blocked_transformers
 
     @blocked_transformers.setter
-    def blocked_transformers(self, blocked_transformers_list):
+    def blocked_transformers(self, blocked_transformers_list: List[Union[BlockedTransformers, str]]):
         self._blocked_transformers = (
             None
             if blocked_transformers_list is None

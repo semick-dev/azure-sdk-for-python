@@ -46,6 +46,7 @@ def get_log_directory(input_directory: str = None) -> str:
     return os.getenv("SDK_LOG_DIRECTORY", os.path.join(discover_repo_root(), ".logs"))
 
 
+<<<<<<< HEAD
 def in_ci() -> bool:
     # CI is set to `true` on github actions agents
     # TF_BUILD is set to `true` on azure devops agents
@@ -53,6 +54,19 @@ def in_ci() -> bool:
         return True
 
     return False
+=======
+def in_ci() -> int:
+    # TF_BUILD is set to `true` on azure devops agents, returns 1
+    # CI is set to `true` on github actions agents, return 2
+    # 0 otherwise
+    if os.getenv("TF_BUILD", None):
+        return 1
+
+    if os.getenv("CI", None):
+        return 2
+
+    return 0
+>>>>>>> upstream/main
 
 
 DEV_BUILD_IDENTIFIER = os.getenv("SDK_DEV_BUILD_IDENTIFIER", "a")

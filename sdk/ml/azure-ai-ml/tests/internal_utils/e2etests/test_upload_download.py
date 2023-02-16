@@ -6,19 +6,19 @@ from pathlib import Path, PurePath
 from typing import Tuple
 
 import pytest
+from devtools_testutils import AzureRecordedTestCase, is_live
+from test_utilities.utils import sleep_if_live
 
 from azure.ai.ml import MLClient
 from azure.ai.ml._artifacts._artifact_utilities import _update_metadata
 from azure.ai.ml._artifacts._blob_storage_helper import BlobStorageClient
 from azure.ai.ml._artifacts._fileshare_storage_helper import FileStorageClient
 from azure.ai.ml._artifacts._gen2_storage_helper import Gen2StorageClient
-from azure.ai.ml._restclient.v2021_10_01.models import DatastoreType
+from azure.ai.ml._restclient.v2022_10_01.models import DatastoreType
 from azure.ai.ml._utils._asset_utils import _parse_name_version, get_object_hash
 from azure.ai.ml._utils._storage_utils import get_storage_client
 from azure.ai.ml.entities import Model
-from azure.ai.ml.entities._datastore.credentials import NoneCredentials
-
-from devtools_testutils import AzureRecordedTestCase, is_live
+from azure.ai.ml.entities._credentials import NoneCredentialConfiguration
 
 container_name = "testblob"
 file_share_name = "testfileshare"
@@ -90,10 +90,8 @@ except FileExistsError:
 
 @pytest.mark.e2etest
 @pytest.mark.usefixtures("recorded_test")
-@pytest.mark.skipif(
-    condition=not is_live(),
-    reason="test are flaky in playback"
-)
+@pytest.mark.skipif(condition=not is_live(), reason="test are flaky in playback")
+@pytest.mark.core_sdk_test
 class TestUpload(AzureRecordedTestCase):
     def test_upload_file_blob(
         self, storage_account_name: str, storage_account_secret: str, dir_asset_id: str, file_asset_id: str
@@ -467,11 +465,11 @@ class TestUpload(AzureRecordedTestCase):
         artifact_path: str,
     ):
         credentialless_ds = client.datastores.get(name=credentialless_datastore)
-        assert isinstance(credentialless_ds.credentials, NoneCredentials)
+        assert isinstance(credentialless_ds.credentials, NoneCredentialConfiguration)
 
         test_model = Model(path=artifact_path)
         created_model = client.models.create_or_update(test_model)
         assert test_model.name == created_model.name
-        time.sleep(5)  # wait for create/upload step
+        sleep_if_live(5)  # wait for create/upload step
 
         client.models.download(name=created_model.name, version=created_model.version)

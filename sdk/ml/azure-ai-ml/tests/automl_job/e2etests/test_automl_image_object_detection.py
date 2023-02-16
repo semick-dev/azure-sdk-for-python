@@ -8,6 +8,7 @@ import os
 from typing import Tuple
 
 import pytest
+from devtools_testutils import AzureRecordedTestCase, is_live
 from test_utilities.utils import assert_final_job_status, get_automl_job_properties
 
 from azure.ai.ml import MLClient, automl
@@ -19,15 +20,10 @@ from azure.ai.ml.entities._job.automl.image import ImageObjectDetectionJob, Imag
 from azure.ai.ml.operations._run_history_constants import JobStatus
 from azure.ai.ml.sweep import BanditPolicy, Choice, Uniform
 
-from devtools_testutils import AzureRecordedTestCase, is_live
 
-
-@pytest.mark.automle2etest
+@pytest.mark.automl_test
 @pytest.mark.usefixtures("recorded_test")
-@pytest.mark.skipif(
-    condition=not is_live(),
-    reason="Datasets downloaded by test are too large to record reliably"
-)
+@pytest.mark.skipif(condition=not is_live(), reason="Datasets downloaded by test are too large to record reliably")
 class TestAutoMLImageObjectDetection(AzureRecordedTestCase):
     def _create_jsonl_object_detection(self, client, train_path, val_path):
         import xml.etree.ElementTree as ET
@@ -150,7 +146,7 @@ class TestAutoMLImageObjectDetection(AzureRecordedTestCase):
                 ),
             ]
         )
-        image_classification_multilabel_job_sweep.set_limits(max_trials=1, max_concurrent_trials=1)
+        image_object_detection_job_sweep.set_limits(max_trials=1, max_concurrent_trials=1)
         image_object_detection_job_sweep.set_sweep(
             sampling_algorithm="Random",
             early_termination=BanditPolicy(evaluation_interval=2, slack_factor=0.2, delay_evaluation=6),
@@ -169,7 +165,11 @@ class TestAutoMLImageObjectDetection(AzureRecordedTestCase):
         submitted_job_automode = client.jobs.create_or_update(image_object_detection_job_automode)
 
         # Assert completion of regular sweep job
-        assert_final_job_status(submitted_job_sweep, client, ImageObjectDetectionJob, JobStatus.COMPLETED)
+        assert_final_job_status(
+            submitted_job_sweep, client, ImageObjectDetectionJob, JobStatus.COMPLETED, deadline=3600
+        )
 
         # Assert completion of Automode job
-        assert_final_job_status(submitted_job_automode, client, ImageObjectDetectionJob, JobStatus.COMPLETED)
+        assert_final_job_status(
+            submitted_job_automode, client, ImageObjectDetectionJob, JobStatus.COMPLETED, deadline=3600
+        )

@@ -1,11 +1,17 @@
 
-# Azure Developer LoadTesting client library for Python
-Azure Developer LoadTesting provides client library in python to the user by which they can interact natively with Load Test Service.The service is for performing the load test to optimize application performance, scalability or capacity. The user can get the client-side and server-side metrices to see the details reported by the test engine and information about your Azure application components.
+# Azure Load Testing client library for Python
+Azure Load Testing provides client library in python to the user by which they can interact natively with Azure Load Testing service. Azure Load Testing is a fully managed load-testing service that enables you to generate high-scale load. The service simulates traffic for your applications, regardless of where they're hosted. Developers, testers, and quality assurance (QA) engineers can use it to optimize application performance, scalability, or capacity.
 
+## Documentation
+Various documentation is available to help you get started
+
+<!-- - [Source code][source_code] -->
+- [API reference documentation][api_reference_doc]
+- [Product Documentation][product_documentation]
 
 ## Getting started
 
-### Installating the package
+### Installing the package
 
 ```bash
 python -m pip install azure-developer-loadtesting
@@ -16,7 +22,9 @@ python -m pip install azure-developer-loadtesting
 - Python 3.7 or later is required to use this package.
 - You need an [Azure subscription][azure_sub] to use this package.
 - An existing Azure Developer LoadTesting instance.
+
 #### Create with an Azure Active Directory Credential
+
 To use an [Azure Active Directory (AAD) token credential][authenticate_with_token],
 provide an instance of the desired credential type obtained from the
 [azure-identity][azure_identity_credentials] library.
@@ -24,136 +32,202 @@ provide an instance of the desired credential type obtained from the
 To authenticate with AAD, you must first [pip][pip] install [`azure-identity`][azure_identity_pip]
 
 After setup, you can choose which type of [credential][azure_identity_credentials] from azure.identity to use.
-As an example, [DefaultAzureCredential][default_azure_credential] can be used to authenticate the client:
 
-Set the values of the client ID, tenant ID, and client secret of the AAD application as environment variables:
-`AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_CLIENT_SECRET`
+As an example, sign in via the Azure CLI `az login` command and [DefaultAzureCredential](https://learn.microsoft.com/python/api/azure-identity/azure.identity.defaultazurecredential?view=azure-python) will authenticate as that user.
 
-Use the returned token credential to authenticate the client:
+Use the returned token credential to authenticate the client.
+
+#### Create the client
+
+Azure Developer LoadTesting SDK has 2 sub-clients of the main client (`LoadTestingClient`) to interact with the service, 'administration' and 'test_run'.
 
 ```python
-from azure.developer.loadtesting import LoadTestingClient
+from azure.developer.loadtesting import LoadTestAdministrationClient
+
+# for managing authentication and authorization
+# can be installed from pypi, follow: https://pypi.org/project/azure-identity/
+# using DefaultAzureCredentials, read more at: https://learn.microsoft.com/en-us/python/api/azure-identity/azure.identity.defaultazurecredential?view=azure-python
 from azure.identity import DefaultAzureCredential
-client = LoadTestingClient(endpoint='<endpoint>', credential=DefaultAzureCredential())
+
+client = LoadTestAdministrationClient(endpoint='<endpoint>', credential=DefaultAzureCredential())
 ```
+
+`<endpoint>` refers to the data-plane endpoint/URL of the resource.
+
+## Key concepts
+
+The Azure Load Test client library for python allows you to interact with each of these components through the use of clients. There are two top-level clients which are the main entry points for the library
+
+- `LoadTestAdministrationClient` (`azure.developer.loadtesting.LoadTestAdministrationClient`)
+- `LoadTestRunClient` (`azure.developer.loadtesting.LoadTestRunClient`)
+
+These two clients also have there asynchronous counterparts, which are 
+- `LoadTestAdministrationClient` (`azure.developer.loadtesting.aio.LoadTestAdministrationClient`)
+- `LoadTestRunClient` (`azure.developer.loadtesting.aio.LoadTestRunClient`)
+
+### Load Test Administration Client
+
+The `LoadTestAdministrationClient` is used to administer and configure the load tests, app components and metrics.
+
+#### Test
+
+A test specifies the test script, and configuration settings for running a load test. You can create one or more tests in an Azure Load Testing resource.
+
+#### App Component
+
+When you run a load test for an Azure-hosted application, you can monitor resource metrics for the different Azure application components (server-side metrics). While the load test runs, and after completion of the test, you can monitor and analyze the resource metrics in the Azure Load Testing dashboard.
+
+#### Metrics
+
+During a load test, Azure Load Testing collects metrics about the test execution. There are two types of metrics:
+
+1. Client-side metrics give you details reported by the test engine. These metrics include the number of virtual users, the request response time, the number of failed requests, or the number of requests per second.
+
+2. Server-side metrics are available for Azure-hosted applications and provide information about your Azure application components. Metrics can be for the number of database reads, the type of HTTP responses, or container resource consumption.
+
+### Test Run Client
+
+The `LoadTestRunClient`  is used to start and stop test runs corresponding to a load test. A test run represents one execution of a load test. It collects the logs associated with running the Apache JMeter script, the load test YAML configuration, the list of app components to monitor, and the results of the test.
+
+### Data-Plane Endpoint
+
+Data-plane of Azure Load Testing resources is addressable using the following URL format:
+
+`00000000-0000-0000-0000-000000000000.aaa.cnt-prod.loadtesting.azure.com`
+
+The first GUID `00000000-0000-0000-0000-000000000000` is the unique identifier used for accessing the Azure Load Testing resource. This is followed by  `aaa` which is the Azure region of the resource.
+
+The data-plane endpoint is obtained from Control Plane APIs.
+
+**Example:** `1234abcd-12ab-12ab-12ab-123456abcdef.eus.cnt-prod.loadtesting.azure.com`
+
+In the above example, `eus` represents the Azure region `East US`.
 
 ## Examples
 
 ### Creating a load test 
 ```python
-from azure.developer.loadtesting import LoadTestingClient
+from azure.developer.loadtesting import LoadTestAdministrationClient
 from azure.identity import DefaultAzureCredential
 from azure.core.exceptions import HttpResponseError
+import os
 
 TEST_ID = "some-test-id"  
-DISPLAY_NAME = "new_namespace-new-namespace"  
+DISPLAY_NAME = "my-load-test"  
+
+# set SUBSCRIPTION_ID as an environment variable
 SUBSCRIPTION_ID = os.environ["SUBSCRIPTION_ID"]  
 
-client = LoadTestingClient(endpoint='<endpoint>', credential=DefaultAzureCredential())
+client = LoadTestAdministrationClient(endpoint='<endpoint>', credential=DefaultAzureCredential())
 
 try:
-    result = client.load_test_administration.create_or_update_test(
+    result = client.create_or_update_test(
         TEST_ID,
         {
-            "resourceId": f"/subscriptions/{SUBSCRIPTION_ID}/resourceGroups/yashika-rg/providers/Microsoft.LoadTestService/loadtests/loadtestsdk",
             "description": "",
-            "displayName": DISPLAY_NAME,
+            "displayName": "My New Load Test",
             "loadTestConfig": {
-                "engineSize": "m",
                 "engineInstances": 1,
                 "splitAllCSVs": False,
             },
-            "secrets": {},
-            "environmentVariables": {},
-            "passFailCriteria": {"passFailMetrics": {}},
-            "keyvaultReferenceIdentityType": "SystemAssigned",
-            "keyvaultReferenceIdentityId": None,
-        },
+            "passFailCriteria": {
+                "passFailMetrics": {
+                    "condition1": {
+                        "clientmetric": "response_time_ms",
+                        "aggregate": "avg",
+                        "condition": ">",
+                        "value": 300
+                    },
+                    "condition2": {
+                        "clientmetric": "error",
+                        "aggregate": "percentage",
+                        "condition": ">",
+                        "value": 50
+                    },
+                    "condition3": {
+                        "clientmetric": "latency",
+                        "aggregate": "avg",
+                        "condition": ">",
+                        "value": 200,
+                        "requestName": "GetCustomerDetails"
+                    }
+                }
+            },
+            "secrets": {
+                "secret1": {
+                    "value": "https://sdk-testing-keyvault.vault.azure.net/secrets/sdk-secret",
+                    "type": "AKV_SECRET_URI"
+                }
+            },
+            "environmentVariables": {
+                "my-varaible": "value"
+            }
+        }
     )
     print(result)
 except HttpResponseError as e:
-     print('service responds error: {}'.format(e.response.json()))
+     print('Service responded with error: {}'.format(e.response.json()))
 
 ```
 
 ### Uploading .jmx file to a Test
 ```python
-from azure.developer.loadtesting import LoadTestingClient
+from azure.developer.loadtesting import LoadTestAdministrationClient
 from azure.identity import DefaultAzureCredential
 from azure.core.exceptions import HttpResponseError
 
 TEST_ID = "some-test-id"  
-FILE_ID = "some-file-id"  
+FILE_NAME = "some-file-name.jmx"  
 
-client = LoadTestingClient(endpoint='<endpoint>', credential=DefaultAzureCredential())
+client = LoadTestAdministrationClient(endpoint='<endpoint>', credential=DefaultAzureCredential())
 
 try:
 
-    result = client.load_test_administration.upload_test_file(TEST_ID, FILE_ID, open("sample.jmx", "rb"))
-    print(result)
+    # uploading .jmx file to a test
+    resultPoller = client.begin_upload_test_file(TEST_ID, FILE_NAME, open("sample.jmx", "rb"))
+    fileUploadResponse = resultPoller.get_initial_response()
+    print(fileUploadResponse)
+
+    # getting result of LRO poller with timeout of 600 secs
+    validationResponse = resultPoller.result(600)
+    print(validationResponse)
+    
 except HttpResponseError as e:
-    print("Failed to send JSON message: {}".format(e.response.json()))
+    print("Failed with error: {}".format(e.response.json()))
 ```
 
 ### Running a Test
 ```python
-from azure.developer.loadtesting import LoadTestingClient
+from azure.developer.loadtesting import LoadTestRunClient
 from azure.identity import DefaultAzureCredential
 from azure.core.exceptions import HttpResponseError
 
 TEST_ID = "some-test-id"  
 TEST_RUN_ID = "some-testrun-id" 
-DISPLAY_NAME = "new_namespace-new-namespace"  
+DISPLAY_NAME = "my-load-test-run"  
 
-client = LoadTestingClient(endpoint='<endpoint>', credential=DefaultAzureCredential())
+client = LoadTestRunClient(endpoint='<endpoint>', credential=DefaultAzureCredential())
 
 try:
-    result = client.load_test_runs.create_and_update_test(
-        TEST_RUN_ID,
+    testRunPoller = client.begin_test_run(
+    TEST_RUN_ID,
         {
             "testId": TEST_ID,
-            "displayName": DISPLAY_NAME,
-            "requestSamplers": [],
-            "errors": [],
-            "percentiles": ["90"],
-            "groupByInterval": "5s",
-        },
+            "displayName": "My New Load Test Run",
+        }
     )
+
+    #waiting for test run status to be completed with timeout = 3600 seconds
+    result = testRunPoller.result(3600)
+    
     print(result)
 except HttpResponseError as e:
-    print("Failed to send JSON message: {}".format(e.response.json()))
+    print("Failed with error: {}".format(e.response.json()))
 ```
-## Key concepts
-The following components make up the Azure Load Testing Service. The Azure Load Test client library for Python allows you to interact with each of these components through the use of a dedicated client object.
-
-### Load testing resource
-The Load testing resource is the top-level resource for your load-testing activities. This resource provides a centralized place to view and manage load tests, test results, and related artifacts. A load testing resource contains zero or more load tests.
-
-### Test
-A test specifies the test script, and configuration settings for running a load test. You can create one or more tests in an Azure Load Testing resource.
-
-### Test Engine
-A test engine is computing infrastructure that runs the Apache JMeter test script. You can scale out your load test by configuring the number of test engines. The test script runs in parallel across the specified number of test engines.
-
-### Test Run
-A test run represents one execution of a load test. It collects the logs associated with running the Apache JMeter script, the load test YAML configuration, the list of app components to monitor, and the results of the test.
-
-### App Component
-When you run a load test for an Azure-hosted application, you can monitor resource metrics for the different Azure application components (server-side metrics). While the load test runs, and after completion of the test, you can monitor and analyze the resource metrics in the Azure Load Testing dashboard.
-
-### Metrics
-During a load test, Azure Load Testing collects metrics about the test execution. There are two types of metrics:
-
-1. Client-side metrics give you details reported by the test engine. These metrics include the number of virtual users, the request response time, the number of failed requests, or the number of requests per second. 
-
-2. Server-side metrics are available for Azure-hosted applications and provide information about your Azure application components. Metrics can be for the number of database reads, the type of HTTP responses, or container resource consumption.
-
-## Troubleshooting
-More about it is coming soon...
 
 ## Next steps
 
-More examples are coming soon...
+More samples can be found [here](https://github.com/Azure/azure-sdk-for-python/tree/main/sdk/loadtestservice/azure-developer-loadtesting/samples).
 
 ## Contributing
 
@@ -172,6 +246,9 @@ This project has adopted the
 see the Code of Conduct FAQ or contact opencode@microsoft.com with any
 additional questions or comments.
 
+## Troubleshooting
+More about it is coming soon...
+
 <!-- LINKS -->
 [code_of_conduct]: https://opensource.microsoft.com/codeofconduct/
 [authenticate_with_token]: https://docs.microsoft.com/azure/cognitive-services/authentication?tabs=powershell#authenticate-with-an-authentication-token
@@ -180,3 +257,5 @@ additional questions or comments.
 [default_azure_credential]: https://github.com/Azure/azure-sdk-for-python/tree/main/sdk/identity/azure-identity#defaultazurecredential
 [pip]: https://pypi.org/project/pip/
 [azure_sub]: https://azure.microsoft.com/free/
+[api_reference_doc]: https://docs.microsoft.com/rest/api/loadtesting/
+[product_documentation]: https://azure.microsoft.com/services/load-testing/

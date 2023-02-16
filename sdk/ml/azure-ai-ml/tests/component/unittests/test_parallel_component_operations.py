@@ -27,6 +27,7 @@ def mock_component_operation(
 
 @pytest.mark.timeout(_COMPONENT_TIMEOUT_SECOND)
 @pytest.mark.unittest
+@pytest.mark.pipeline_test
 class TestComponentOperation:
     def test_create(self, mock_component_operation: ComponentOperations) -> None:
         task = {
@@ -61,9 +62,7 @@ class TestComponentOperation:
             workspace_name=mock_component_operation._workspace_name,
         )
 
-    def test_create_autoincrement(
-        self, mock_component_operation: ComponentOperations
-    ) -> None:
+    def test_create_autoincrement(self, mock_component_operation: ComponentOperations) -> None:
         task = {
             "type": "run_function",
             "model": {"name": "sore_model", "type": "mlflow_model"},

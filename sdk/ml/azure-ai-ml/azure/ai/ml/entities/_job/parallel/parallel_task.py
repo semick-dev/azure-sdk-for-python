@@ -3,13 +3,13 @@
 # ---------------------------------------------------------
 from os import PathLike
 from pathlib import Path
-from typing import Dict, Union
+from typing import Dict, Optional, Union
 
 # from azure.ai.ml.entities._deployment.code_configuration import CodeConfiguration
 from azure.ai.ml._schema.component.parallel_task import ComponentParallelTaskSchema
 from azure.ai.ml._utils.utils import load_yaml
 from azure.ai.ml.constants._common import BASE_PATH_CONTEXT_KEY, PARAMS_OVERRIDE_KEY
-from azure.ai.ml.entities._assets import Environment
+from azure.ai.ml.entities._assets.environment import Environment
 from azure.ai.ml.entities._mixins import DictMixin, RestTranslatableMixin
 from azure.ai.ml.entities._util import load_from_dict
 from azure.ai.ml.exceptions import ErrorCategory, ErrorTarget, ValidationException
@@ -48,19 +48,19 @@ class ParallelTask(RestTranslatableMixin, DictMixin):
         if it is not set, 'summary_only' would invoked,  which means user script is expected to store the output itself.
     :type append_row_to: str
     :param environment: Environment that training job will run in.
-    :type environment: Union["Environment", str]
+    :type environment: Union[Environment, str]
     """
 
     def __init__(
         self,
         *,
-        type: str = None,  # pylint: disable=redefined-builtin
-        code: str = None,
-        entry_script: str = None,
-        program_arguments: str = None,
-        model: str = None,
-        append_row_to: str = None,
-        environment: Union["Environment", str] = None,
+        type: Optional[str] = None,  # pylint: disable=redefined-builtin
+        code: Optional[str] = None,
+        entry_script: Optional[str] = None,
+        program_arguments: Optional[str] = None,
+        model: Optional[str] = None,
+        append_row_to: Optional[str] = None,
+        environment: Optional[Union[Environment, str]] = None,
         **kwargs,  # pylint: disable=unused-argument
     ):
         self.type = type
@@ -78,8 +78,8 @@ class ParallelTask(RestTranslatableMixin, DictMixin):
     @classmethod
     def _load(
         cls,
-        path: Union[PathLike, str] = None,
-        params_override: list = None,
+        path: Optional[Union[PathLike, str]] = None,
+        params_override: Optional[list] = None,
         **kwargs,  # pylint: disable=unused-argument
     ) -> "ParallelTask":
         params_override = params_override or []
@@ -90,8 +90,8 @@ class ParallelTask(RestTranslatableMixin, DictMixin):
     def _load_from_dict(
         cls,
         data: dict,
-        path: Union[PathLike, str] = None,
-        params_override: list = None,
+        path: Optional[Union[PathLike, str]] = None,
+        params_override: Optional[list] = None,
         **kwargs,
     ) -> "ParallelTask":
         params_override = params_override or []

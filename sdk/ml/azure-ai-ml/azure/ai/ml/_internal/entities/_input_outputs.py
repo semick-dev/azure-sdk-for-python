@@ -3,7 +3,7 @@
 # ---------------------------------------------------------
 from typing import Dict, Optional, Union
 
-from azure.ai.ml import Input
+from azure.ai.ml import Input, Output
 from azure.ai.ml.constants._component import ComponentParameterTypes, IOConstants
 
 _INPUT_TYPE_ENUM = "enum"
@@ -22,6 +22,15 @@ class InternalInput(Input):
     - Boolean
     - Enum, enum (new)
     """
+
+    def __init__(self, *, datastore_mode=None, is_resource=None, **kwargs):
+        self.datastore_mode = datastore_mode
+        self.is_resource = is_resource
+        if "type" in kwargs and kwargs["type"] == "ComputeSelection":
+            # Convert UIWidgetType ComputeSelection to string type.
+            # Remove it when backend convert UIWidgetType to supported type.
+            kwargs["type"] = ComponentParameterTypes.STRING
+        super().__init__(**kwargs)
 
     @property
     def _allowed_types(self):
@@ -86,7 +95,7 @@ class InternalInput(Input):
         return super()._get_python_builtin_type_str()
 
     @classmethod
-    def _cast_from_input_or_dict(cls, _input: Union[Input, Dict]) -> "InternalInput":
+    def _from_base(cls, _input: Union[Input, Dict]) -> Optional["InternalInput"]:
         """Cast from Input or Dict to InternalInput. Do not guarantee to create a new object."""
         if _input is None:
             return None
@@ -98,3 +107,23 @@ class InternalInput(Input):
             _input.__class__ = InternalInput
             return _input
         return InternalInput(**_input)
+
+
+class InternalOutput(Output):
+    def __init__(self, *, datastore_mode=None, is_link_mode=None, **kwargs):
+        self.datastore_mode = datastore_mode
+        self.is_link_mode = is_link_mode
+        super().__init__(**kwargs)
+
+    @classmethod
+    def _from_base(cls, _output: Union[Output, Dict]) -> Optional["InternalOutput"]:
+        if _output is None:
+            return None
+        if isinstance(_output, InternalOutput):
+            return _output
+        if isinstance(_output, Output):
+            # do force cast directly as there is no new field added in InternalInput
+            # need to change the logic if new field is added
+            _output.__class__ = InternalOutput
+            return _output
+        return InternalOutput(**_output)

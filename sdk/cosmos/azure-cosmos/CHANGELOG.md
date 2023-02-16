@@ -1,13 +1,13 @@
 ## Release History
 
 ### 4.3.1b2 (Unreleased)
-
 #### Features Added
-
+ - Added `correlated_activity_id` for query operations
+ - Added cross regional retries for Service Unavailable/Request Timeouts for read/Query Plan operations
 #### Breaking Changes
 
 #### Bugs Fixed
-
+- Bug fix to address queries with VALUE MAX (or any other aggregate) that run into an issue if the query is executed on a container with at least one "empty" partition.
 #### Other Changes
 
 ### 4.3.1b1 (2022-09-19)

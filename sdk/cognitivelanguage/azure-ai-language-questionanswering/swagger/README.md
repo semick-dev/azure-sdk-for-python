@@ -17,6 +17,10 @@ cd <swagger-folder>
 autorest
 ```
 
+1) After generation, run the [postprocessing](https://github.com/Azure/autorest.python/blob/autorestv3/docs/customizations.md#postprocessing) script to fix linting issues in the runtime library.
+
+`autorest --postprocess --output-folder=<path-to-root-of-package> --perform-load=false --python`
+
 ### Settings
 
 ```yaml
@@ -27,7 +31,7 @@ clear-output-folder: true
 no-namespace-folders: true
 python: true
 version-tolerant: true
-package-version: 1.1.0b3
+package-version: 1.1.1
 add-credential: true
 credential-default-policy-type: AzureKeyCredentialPolicy
 credential-key-header-name: Ocp-Apim-Subscription-Key
@@ -38,16 +42,16 @@ black: true
 
 ```yaml
 batch:
-  - tag: release_runtime_1_1_preview
-  - tag: release_authoring_1_1_preview
+  - tag: release_runtime_1_1
+  - tag: release_authoring_1_1
 ```
 
 
 ## Runtime
 
-These settings apply only when `--tag=release_runtime_1_1_preview` is specified on the command line.
+These settings apply only when `--tag=release_runtime_1_1` is specified on the command line.
 
-```yaml $(tag) == 'release_runtime_1_1_preview'
+```yaml $(tag) == 'release_runtime_1_1'
 input-file: https://raw.githubusercontent.com/Azure/azure-rest-api-specs/59ad2b7dd63e952822aa51e11a26a0af5724f996/specification/cognitiveservices/data-plane/Language/stable/2021-10-01/questionanswering.json
 output-folder: ../azure/ai/language/questionanswering
 models-mode: msrest
@@ -56,12 +60,12 @@ title: QuestionAnsweringClient
 
 ## Authoring
 
-These settings apply only when `--tag=release_authoring_1_1_preview` is specified on the command line.
+These settings apply only when `--tag=release_authoring_1_1` is specified on the command line.
 
-```yaml $(tag) == 'release_authoring_1_1_preview'
+```yaml $(tag) == 'release_authoring_1_1'
 input-file: https://raw.githubusercontent.com/Azure/azure-rest-api-specs/59ad2b7dd63e952822aa51e11a26a0af5724f996/specification/cognitiveservices/data-plane/Language/stable/2021-10-01/questionanswering-authoring.json
 output-folder: ../azure/ai/language/questionanswering/authoring
-title: QuestionAnsweringAuthoringClient
+title: AuthoringClient
 ```
 
 
@@ -70,17 +74,27 @@ title: QuestionAnsweringAuthoringClient
 
 ### General customizations
 
+#### Add docs to authoring operations
+
+```yaml
+directive:
+- from: questionanswering-authoring.json
+  where: $.paths.*.*
+  transform: |
+    var operationId = $.operationId.replace(/_/g, "/").replace(/([a-z0-9])([A-Z])/g, "$1-$2").toLowerCase();
+    $.description = "See https://learn.microsoft.com/rest/api/cognitiveservices/questionanswering/" + operationId + " for more information.";
+
+# Fix too long of link in description.
+- from: swagger-document
+  where: $.info
+  transform: |
+    $["description"] = "The language service API is a suite of natural language processing (NLP) skills built with best-in-class Microsoft machine learning algorithms. The API can be used to analyze unstructured text for tasks such as sentiment analysis, key phrase extraction, language detection and question answering. Further documentation can be found in https://docs.microsoft.com/azure/cognitive-services/text-analytics/overview";
+```
+
 ```yaml
 # Define HTTP 200 responses for LROs to document result model.
+# Note there is no transform for DeleteProject. This should return None.
 directive:
-- where-operation: QuestionAnsweringProjects_DeleteProject
-  transform: |
-    $.responses["200"] = {
-      description: "Project delete job status.",
-      schema: {
-        "$ref": "#/definitions/JobState"
-      }
-    };
 - where-operation: QuestionAnsweringProjects_DeployProject
   transform: |
     $.responses["200"] = {
@@ -331,4 +345,14 @@ directive:
     where: $["paths"]["/query-knowledgebases/projects/{projectName}"]["patch"]
     transform: >
         $["parameters"][1]["x-ms-client-name"] = "options";
+```
+
+#### Rename format parameter
+
+```yaml
+directive:
+  - from: swagger-document
+    where: $["parameters"]["ImportExportFormatParameter"]
+    transform: >
+        $["x-ms-client-name"] = "file_format";
 ```

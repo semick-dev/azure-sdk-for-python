@@ -19,6 +19,7 @@ from azure.ai.ml.constants._common import (
     PROVIDER_RESOURCE_ID_WITH_VERSION,
     REGISTRY_URI_REGEX_FORMAT,
     REGISTRY_VERSION_PATTERN,
+    SINGULARITY_ID_FORMAT,
 )
 from azure.ai.ml.exceptions import ErrorCategory, ErrorTarget, ValidationErrorType, ValidationException
 
@@ -29,9 +30,9 @@ class AMLVersionedArmId(object):
     """Parser for versioned arm id: e.g. /subscription/.../code/my-
     code/versions/1.
 
-    :param arm_id: the versioned arm id
+    :param arm_id: The versioned ARM id.
     :type arm_id: str
-    :raises ValidationException: the arm id is incorrectly formatted
+    :raises ~azure.ai.ml.exceptions.ValidationException: Raised if the ARM id is incorrectly formatted.
     """
 
     REGEX_PATTERN = (
@@ -68,7 +69,9 @@ class AMLVersionedArmId(object):
                     )
 
 
-def get_datastore_arm_id(datastore_name: str = None, operation_scope: OperationScope = None) -> Optional[str]:
+def get_datastore_arm_id(
+    datastore_name: Optional[str] = None, operation_scope: Optional[OperationScope] = None
+) -> Optional[str]:
     return (
         DATASTORE_RESOURCE_ID.format(
             operation_scope.subscription_id,
@@ -81,13 +84,56 @@ def get_datastore_arm_id(datastore_name: str = None, operation_scope: OperationS
     )
 
 
+class AMLLabelledArmId(object):
+    """Parser for versioned arm id: e.g. /subscription/.../code/my-
+    code/labels/default.
+
+    :param arm_id: The labelled ARM id.
+    :type arm_id: str
+    :raises ~azure.ai.ml.exceptions.ValidationException: Raised if the ARM id is incorrectly formatted.
+    """
+
+    REGEX_PATTERN = (
+        "^/?subscriptions/([^/]+)/resourceGroups/(["
+        "^/]+)/providers/Microsoft.MachineLearningServices/workspaces/([^/]+)/([^/]+)/([^/]+)/labels/(["
+        "^/]+)"
+    )
+
+    def __init__(self, arm_id=None):
+        self.is_registry_id = None
+        if arm_id:
+            match = re.match(AMLLabelledArmId.REGEX_PATTERN, arm_id)
+            if match:
+                self.subscription_id = match.group(1)
+                self.resource_group_name = match.group(2)
+                self.workspace_name = match.group(3)
+                self.asset_type = match.group(4)
+                self.asset_name = match.group(5)
+                self.asset_label = match.group(6)
+            else:
+                match = re.match(REGISTRY_VERSION_PATTERN, arm_id)
+                if match:
+                    self.asset_name = match.group(3)
+                    self.asset_label = match.group(4)
+                    self.is_registry_id = True
+                else:
+                    msg = "Invalid AzureML ARM versioned Id {}"
+                    raise ValidationException(
+                        message=msg.format(arm_id),
+                        no_personal_data_message=msg.format("[arm_id]"),
+                        error_type=ValidationErrorType.INVALID_VALUE,
+                        error_category=ErrorCategory.USER_ERROR,
+                        target=ErrorTarget.ARM_RESOURCE,
+                    )
+
+
 class AMLNamedArmId:
     """Parser for named arm id (no version): e.g.
     /subscription/.../compute/cpu-cluster.
 
-    :param arm_id: the named arm id
+    :param arm_id: The named ARM id.
     :type arm_id: str
-    :raises ValidationException: the arm id is incorrectly formatted
+    :raises ~azure.ai.ml.exceptions.ValidationException~: Raised if the ARM id is incorrectly formatted.
     """
 
     REGEX_PATTERN = (
@@ -134,6 +180,12 @@ class AMLAssetId:
     REGEX_PATTERN = ASSET_ID_URI_REGEX_FORMAT
 
     def __init__(self, asset_id: str):
+        """Parser for asset id
+
+        :param asset_id: The asset id.
+        :type asset_id: str
+        :raises ~azure.ai.ml.exceptions.ValidationException~: Raised if the asset id is incorrectly formatted.
+        """
         match = re.match(AMLAssetId.REGEX_PATTERN, asset_id)
         if match is None:
             msg = "Invalid AzureML Asset Id {}"
@@ -155,19 +207,28 @@ class AMLAssetId:
 class AzureResourceId:
     """Parser for a non-AzureML ARM Id.
 
-    :param arm_id: the named arm id
+    :param arm_id: The non-AzureML ARM id.
     :type arm_id: str
-    :raises ValidationException: the arm id is incorrectly formatted
+    :raises ~azure.ai.ml.exceptions.ValidationException~: Raised if the ARM id is incorrectly formatted.
     """
 
     REGEX_PATTERN = "^/?subscriptions/([^/]+)/resourceGroups/([^/]+)/providers/Microsoft.([^/]+)/([^/]+)/([^/]+)"
+    RESOURCEGROUP_PATTERN = "^/?subscriptions/([^/]+)/providers/Microsoft.([^/]+)/([^/]+)/([^/]+)"
 
     def __init__(self, arm_id=None):
         if arm_id:
             match = re.match(AzureResourceId.REGEX_PATTERN, arm_id)
+            rg_match = re.match(AzureResourceId.RESOURCEGROUP_PATTERN, arm_id)
             if match:
-                self.asset_name = match.group(5)
+                self.subscription_id = match.group(1)
+                self.resource_group_name = match.group(2)
                 self.asset_type = match.group(4)
+                self.asset_name = match.group(5)
+            elif rg_match:
+                self.subscription_id = rg_match.group(1)
+                self.resource_group_name = None
+                self.asset_name = rg_match.group(4)
+                self.asset_type = rg_match.group(3)
             else:
                 msg = "Invalid ARM Id {}"
                 raise ValidationException(
@@ -177,9 +238,6 @@ class AzureResourceId:
                     error_category=ErrorCategory.USER_ERROR,
                     target=ErrorTarget.ARM_RESOURCE,
                 )
-
-            self.subscription_id = match.group(1)
-            self.resource_group_name = match.group(2)
 
 
 def _parse_endpoint_name_from_deployment_id(deployment_id: str) -> str:
@@ -274,6 +332,12 @@ def is_registry_id_for_resource(name: Any) -> bool:
     return False
 
 
+def is_singularity_id_for_resource(name: Any) -> bool:
+    if isinstance(name, str) and re.match(SINGULARITY_ID_FORMAT, name, re.IGNORECASE):
+        return True
+    return False
+
+
 def get_arm_id_with_version(
     operation_scope: OperationScope,
     provider_name: str,
@@ -338,9 +402,9 @@ def get_arm_id_object_from_id(
 
     :param resource_id: the ARM Id to parse
     :type arm_id: str
+    :raises ~azure.ai.ml.exceptions.ValidationException~: Raised if the ARM id is incorrectly formatted.
     :return: The parser for the given ARM Id
     :rtype: Union[AMLVersionedArmId, AMLNamedArmId, AzureResourceId]
-    :raises ValidationException: the arm id is incorrectly formatted
     """
 
     # Try each type of parser for the ARM id. If none succeed, raise a ValueError

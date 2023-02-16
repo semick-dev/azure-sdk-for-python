@@ -1,6 +1,33 @@
 # Release History
 
-## 12.9.0 (Unreleased)
+## 12.10.0 (Unreleased)
+
+### Features Added
+- Stable release of features from 12.10.0b1
+
+## 12.10.0b1 (2023-02-02)
+
+### Features Added
+- Added support for service version 2021-12-02.
+- Added ability to perform leasing actions on file append and flush. See new keyword `lease_action` for details.
+- Added support for `AsyncIterable` as data type for async file upload.
+
+### Bugs Fixed
+- Fixed an issue where `rename_file` and `rename_directory` would not work correctly if the new file/directory name
+contained a `?` character.
+
+### Other Changes
+- Removed `msrest` dependency.
+- Added `typing-extensions>=4.0.1` as a dependency.
+- Added `isodate>=0.6.1` as a dependency.
+- Added extra dependency `aio` for installing optional async dependencies. Use `pip install azure-storage-file-datalake[aio]` to install.
+
+## 12.9.1 (2022-10-18)
+
+### Bugs Fixed
+- Fixed possible `ValueError` for invalid content range that gets raised when downloading empty files through Azurite.
+
+## 12.9.0 (2022-10-11)
 
 ### Features Added
 - Stable release of features from 12.9.0b1.

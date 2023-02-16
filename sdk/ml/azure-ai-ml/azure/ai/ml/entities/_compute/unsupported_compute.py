@@ -3,7 +3,7 @@
 # ---------------------------------------------------------
 from typing import Dict
 
-from azure.ai.ml._restclient.v2022_01_01_preview.models import ComputeResource
+from azure.ai.ml._restclient.v2022_10_01_preview.models import ComputeResource
 from azure.ai.ml.constants._common import TYPE
 from azure.ai.ml.entities._compute.compute import Compute
 from azure.ai.ml.exceptions import ErrorCategory, ErrorTarget, ValidationException
@@ -32,6 +32,7 @@ class UnsupportedCompute(Compute):
             description=prop.description,
             location=rest_obj.location,
             resource_id=prop.resource_id,
+            tags=prop.tags,
             provisioning_state=prop.provisioning_state,
             created_on=prop.additional_properties.get("createdOn", None),
         )

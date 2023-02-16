@@ -5,7 +5,7 @@
 import logging
 import warnings
 from os import PathLike
-from typing import IO, AnyStr, Type, Union
+from typing import IO, AnyStr, Optional, Type, Union
 
 from marshmallow import ValidationError
 
@@ -42,7 +42,7 @@ def load_common(
     cls: Type[Resource],
     source: Union[str, PathLike, IO[AnyStr]],
     relative_origin: str,
-    params_override: list = None,
+    params_override: Optional[list] = None,
     **kwargs,
 ) -> Resource:
     """Private function to load a yaml file to an entity object.
@@ -82,15 +82,18 @@ def load_common(
     params_override = params_override or []
     yaml_dict = _try_load_yaml_dict(source)
 
+    # pylint: disable=protected-access
     cls, type_str = cls._resolve_cls_and_type(data=yaml_dict, params_override=params_override)
 
     try:
         return _load_common_raising_marshmallow_error(cls, yaml_dict, relative_origin, params_override, **kwargs)
     except ValidationError as e:
         if issubclass(cls, SchemaValidatableMixin):
-            validation_result = _ValidationResultBuilder.from_validation_error(e, relative_origin)
+            validation_result = _ValidationResultBuilder.from_validation_error(e, source_path=relative_origin)
             validation_result.try_raise(
+                # pylint: disable=protected-access
                 error_target=cls._get_validation_error_target(),
+                # pylint: disable=protected-access
                 schema=cls._create_schema_for_validation_with_base_path(),
                 raise_mashmallow_error=True,
                 additional_message=""
@@ -99,8 +102,7 @@ def load_common(
                 f"of type {type_str}, please specify the correct "
                 f"type in the 'type' property.",
             )
-        else:
-            raise e
+        raise e
 
 
 def _try_load_yaml_dict(source: Union[str, PathLike, IO[AnyStr]]) -> dict:
@@ -127,15 +129,20 @@ def _try_load_yaml_dict(source: Union[str, PathLike, IO[AnyStr]]) -> dict:
 
 
 def _load_common_raising_marshmallow_error(
-    cls: Type[Resource], yaml_dict, relative_origin: Union[PathLike, str], params_override: list = None, **kwargs
+    cls: Type[Resource],
+    yaml_dict,
+    relative_origin: Union[PathLike, str],
+    params_override: Optional[list] = None,
+    **kwargs,
 ) -> Resource:
+    # pylint: disable=protected-access
     return cls._load(data=yaml_dict, yaml_path=relative_origin, params_override=params_override, **kwargs)
 
 
 def load_job(
     source: Union[str, PathLike, IO[AnyStr]],
     *,
-    relative_origin: str = None,
+    relative_origin: Optional[str] = None,
     **kwargs,
 ) -> Job:
     """Construct a job object from a yaml file.
@@ -155,7 +162,8 @@ def load_job(
     :param params_override: Fields to overwrite on top of the yaml file.
         Format is [{"field1": "value1"}, {"field2": "value2"}]
     :type params_override: List[Dict]
-
+    :raises ~azure.ai.ml.exceptions.ValidationException: Raised if Job cannot be successfully validated.
+        Details will be provided in the error message.
     :return: Loaded job object.
     :rtype: Job
     """
@@ -165,7 +173,7 @@ def load_job(
 def load_workspace(
     source: Union[str, PathLike, IO[AnyStr]],
     *,
-    relative_origin: str = None,
+    relative_origin: Optional[str] = None,
     **kwargs,
 ) -> Workspace:
     """Load a workspace object from a yaml file.
@@ -195,7 +203,7 @@ def load_workspace(
 def load_registry(
     source: Union[str, PathLike, IO[AnyStr]],
     *,
-    relative_origin: str = None,
+    relative_origin: Optional[str] = None,
     **kwargs,
 ) -> Registry:
     """Load a registry object from a yaml file.
@@ -225,7 +233,7 @@ def load_registry(
 def load_datastore(
     source: Union[str, PathLike, IO[AnyStr]],
     *,
-    relative_origin: str = None,
+    relative_origin: Optional[str] = None,
     **kwargs,
 ) -> Datastore:
     """Construct a datastore object from a yaml file.
@@ -245,7 +253,8 @@ def load_datastore(
     :param params_override: Fields to overwrite on top of the yaml file.
         Format is [{"field1": "value1"}, {"field2": "value2"}]
     :type params_override: List[Dict]
-
+    :raises ~azure.ai.ml.exceptions.ValidationException: Raised if Datastore cannot be successfully validated.
+        Details will be provided in the error message.
     :return: Loaded datastore object.
     :rtype: Datastore
     """
@@ -255,7 +264,7 @@ def load_datastore(
 def load_code(
     source: Union[str, PathLike, IO[AnyStr]],
     *,
-    relative_origin: str = None,
+    relative_origin: Optional[str] = None,
     **kwargs,
 ) -> Code:
     """Construct a code object from a yaml file.
@@ -275,7 +284,8 @@ def load_code(
     :param params_override: Fields to overwrite on top of the yaml file.
         Format is [{"field1": "value1"}, {"field2": "value2"}]
     :type params_override: List[Dict]
-
+    :raises ~azure.ai.ml.exceptions.ValidationException: Raised if Code cannot be successfully validated.
+        Details will be provided in the error message.
     :return: Loaded compute object.
     :rtype: Compute
     """
@@ -285,7 +295,7 @@ def load_code(
 def load_compute(
     source: Union[str, PathLike, IO[AnyStr]],
     *,
-    relative_origin: str = None,
+    relative_origin: Optional[str] = None,
     **kwargs,
 ) -> Compute:
     """Construct a compute object from a yaml file.
@@ -313,9 +323,9 @@ def load_compute(
 
 
 def load_component(
-    source: Union[str, PathLike, IO[AnyStr]] = None,
+    source: Optional[Union[str, PathLike, IO[AnyStr]]] = None,
     *,
-    relative_origin: str = None,
+    relative_origin: Optional[str] = None,
     **kwargs,
 ) -> Union[CommandComponent, ParallelComponent, PipelineComponent]:
     """Load component from local or remote to a component function.
@@ -375,7 +385,7 @@ def load_component(
             no_personal_data_message=msg,
             target=ErrorTarget.COMPONENT,
             error_category=ErrorCategory.USER_ERROR,
-            error_type=ValidationErrorType.MISSING_VALUE,
+            error_type=ValidationErrorType.MISSING_FIELD,
         )
     return component_entity
 
@@ -383,7 +393,7 @@ def load_component(
 def load_model(
     source: Union[str, PathLike, IO[AnyStr]],
     *,
-    relative_origin: str = None,
+    relative_origin: Optional[str] = None,
     **kwargs,
 ) -> Model:
     """Construct a model object from yaml file.
@@ -403,7 +413,8 @@ def load_model(
     :param params_override: Fields to overwrite on top of the yaml file.
         Format is [{"field1": "value1"}, {"field2": "value2"}]
     :type params_override: List[Dict]
-
+    :raises ~azure.ai.ml.exceptions.ValidationException: Raised if Model cannot be successfully validated.
+        Details will be provided in the error message.
     :return: Constructed model object.
     :rtype: Model
     """
@@ -413,7 +424,7 @@ def load_model(
 def load_data(
     source: Union[str, PathLike, IO[AnyStr]],
     *,
-    relative_origin: str = None,
+    relative_origin: Optional[str] = None,
     **kwargs,
 ) -> Data:
     """Construct a data object from yaml file.
@@ -433,7 +444,8 @@ def load_data(
     :param params_override: Fields to overwrite on top of the yaml file.
         Format is [{"field1": "value1"}, {"field2": "value2"}]
     :type params_override: List[Dict]
-
+    :raises ~azure.ai.ml.exceptions.ValidationException: Raised if Data cannot be successfully validated.
+        Details will be provided in the error message.
     :return: Constructed data object.
     :rtype: Data
     """
@@ -443,7 +455,7 @@ def load_data(
 def load_environment(
     source: Union[str, PathLike, IO[AnyStr]],
     *,
-    relative_origin: str = None,
+    relative_origin: Optional[str] = None,
     **kwargs,
 ) -> Environment:
     """Construct a environment object from yaml file.
@@ -463,7 +475,8 @@ def load_environment(
     :param params_override: Fields to overwrite on top of the yaml file.
         Format is [{"field1": "value1"}, {"field2": "value2"}]
     :type params_override: List[Dict]
-
+    :raises ~azure.ai.ml.exceptions.ValidationException: Raised if Environment cannot be successfully validated.
+        Details will be provided in the error message.
     :return: Constructed environment object.
     :rtype: Environment
     """
@@ -473,7 +486,7 @@ def load_environment(
 def load_online_deployment(
     source: Union[str, PathLike, IO[AnyStr]],
     *,
-    relative_origin: str = None,
+    relative_origin: Optional[str] = None,
     **kwargs,
 ) -> OnlineDeployment:
     """Construct a online deployment object from yaml file.
@@ -493,7 +506,8 @@ def load_online_deployment(
     :param params_override: Fields to overwrite on top of the yaml file.
         Format is [{"field1": "value1"}, {"field2": "value2"}]
     :type params_override: List[Dict]
-
+    :raises ~azure.ai.ml.exceptions.ValidationException: Raised if Online Deployment cannot be successfully validated.
+        Details will be provided in the error message.
     :return: Constructed online deployment object.
     :rtype: OnlineDeployment
     """
@@ -503,7 +517,7 @@ def load_online_deployment(
 def load_batch_deployment(
     source: Union[str, PathLike, IO[AnyStr]],
     *,
-    relative_origin: str = None,
+    relative_origin: Optional[str] = None,
     **kwargs,
 ) -> BatchDeployment:
     """Construct a batch deployment object from yaml file.
@@ -533,7 +547,7 @@ def load_batch_deployment(
 def load_online_endpoint(
     source: Union[str, PathLike, IO[AnyStr]],
     *,
-    relative_origin: str = None,
+    relative_origin: Optional[str] = None,
     **kwargs,
 ) -> OnlineEndpoint:
     """Construct a online endpoint object from yaml file.
@@ -553,7 +567,8 @@ def load_online_endpoint(
     :param params_override: Fields to overwrite on top of the yaml file.
         Format is [{"field1": "value1"}, {"field2": "value2"}]
     :type params_override: List[Dict]
-
+    :raises ~azure.ai.ml.exceptions.ValidationException: Raised if Online Endpoint cannot be successfully validated.
+        Details will be provided in the error message.
     :return: Constructed online endpoint object.
     :rtype: OnlineEndpoint
     """
@@ -562,7 +577,7 @@ def load_online_endpoint(
 
 def load_batch_endpoint(
     source: Union[str, PathLike, IO[AnyStr]],
-    relative_origin: str = None,
+    relative_origin: Optional[str] = None,
     **kwargs,
 ) -> BatchEndpoint:
     """Construct a batch endpoint object from yaml file.
@@ -592,7 +607,7 @@ def load_batch_endpoint(
 def load_workspace_connection(
     source: Union[str, PathLike, IO[AnyStr]],
     *,
-    relative_origin: str = None,
+    relative_origin: Optional[str] = None,
     **kwargs,
 ) -> WorkspaceConnection:
     """Construct a workspace connection object from yaml file.
@@ -621,7 +636,7 @@ def load_workspace_connection(
 
 def load_schedule(
     source: Union[str, PathLike, IO[AnyStr]],
-    relative_origin: str = None,
+    relative_origin: Optional[str] = None,
     **kwargs,
 ) -> JobSchedule:
     """Construct a schedule object from yaml file.

@@ -6,6 +6,7 @@
 # Changes may cause incorrect behavior and will be lost if the code is regenerated.
 # --------------------------------------------------------------------------
 
+import sys
 from typing import Any
 
 from azure.core.configuration import Configuration
@@ -14,9 +15,14 @@ from azure.core.pipeline import policies
 
 from ._version import VERSION
 
+if sys.version_info >= (3, 8):
+    from typing import Literal  # pylint: disable=no-name-in-module, ungrouped-imports
+else:
+    from typing_extensions import Literal  # type: ignore  # pylint: disable=ungrouped-imports
 
-class QuestionAnsweringAuthoringClientConfiguration(Configuration):  # pylint: disable=too-many-instance-attributes
-    """Configuration for QuestionAnsweringAuthoringClient.
+
+class AuthoringClientConfiguration(Configuration):  # pylint: disable=too-many-instance-attributes
+    """Configuration for AuthoringClient.
 
     Note that all parameters used to create this instance are saved as instance
     attributes.
@@ -32,8 +38,8 @@ class QuestionAnsweringAuthoringClientConfiguration(Configuration):  # pylint: d
     """
 
     def __init__(self, endpoint: str, credential: AzureKeyCredential, **kwargs: Any) -> None:
-        super(QuestionAnsweringAuthoringClientConfiguration, self).__init__(**kwargs)
-        api_version = kwargs.pop("api_version", "2021-10-01")  # type: str
+        super(AuthoringClientConfiguration, self).__init__(**kwargs)
+        api_version: Literal["2021-10-01"] = kwargs.pop("api_version", "2021-10-01")
 
         if endpoint is None:
             raise ValueError("Parameter 'endpoint' must not be None.")
@@ -46,10 +52,7 @@ class QuestionAnsweringAuthoringClientConfiguration(Configuration):  # pylint: d
         kwargs.setdefault("sdk_moniker", "ai-language-questionanswering/{}".format(VERSION))
         self._configure(**kwargs)
 
-    def _configure(
-        self, **kwargs  # type: Any
-    ):
-        # type: (...) -> None
+    def _configure(self, **kwargs: Any) -> None:
         self.user_agent_policy = kwargs.get("user_agent_policy") or policies.UserAgentPolicy(**kwargs)
         self.headers_policy = kwargs.get("headers_policy") or policies.HeadersPolicy(**kwargs)
         self.proxy_policy = kwargs.get("proxy_policy") or policies.ProxyPolicy(**kwargs)
