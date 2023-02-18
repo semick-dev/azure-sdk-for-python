@@ -102,8 +102,8 @@ def get_build_config(package_path: str) -> Dict[str, Any]:
                 toml_dict = toml.load(f)
                 if "tool" in toml_dict:
                     tool_configs = toml_dict["tool"]
-                    if "azure-sdk-build" in tool_configs:
-                        return tool_configs["azure-sdk-build"]
+                    if "azuresdkbuild" in tool_configs:
+                        return tool_configs["azuresdkbuild"]
         except:
             return {}
 

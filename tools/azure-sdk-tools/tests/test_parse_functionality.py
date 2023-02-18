@@ -116,3 +116,5 @@ setup(
     assert len(result.classifiers) > 0
     assert result.classifiers[0] == "Development Status :: 5 - Production/Stable"
     assert result.classifiers[5] == "Programming Language :: Python :: 3.8"
+
+    breakpoint()
